@@ -266,6 +266,14 @@ int main()
         -0.5f,  0.5f, -0.5f,  0.0f, 0.9375f  // Bottom-left
     };
 
+    float faceVertices[] = {
+        -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
+         0.5f, -0.5f, -0.5f,  0.0625f, 0.9375f, // Bottom-right
+         0.5f,  0.5f, -0.5f,  0.0625f, 1.0f, // Top-right
+         0.5f,  0.5f, -0.5f,  0.0625f, 1.0f, // Top-right
+        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, // Top-left
+        -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
+    };
 
 
 
@@ -288,7 +296,7 @@ int main()
     glBindVertexArray(VAO1);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO1);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(faceVertices), faceVertices, GL_STATIC_DRAW);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), static_cast<void *>(nullptr));
     glEnableVertexAttribArray(0);
@@ -317,11 +325,15 @@ int main()
     const siv::PerlinNoise::seed_type seed = 123456u;
     const siv::PerlinNoise perlin{ seed };
 
+
+
     int worldSizeX = 16, worldSizeY = 20, worldSizeZ = 16;
+    const int instanceSize = worldSizeX * worldSizeY * worldSizeZ * 6;
     std::vector blocks(worldSizeX, std::vector(worldSizeY, std::vector(worldSizeZ, Blocks::AIR)));
-    std::vector aTexOffsetOverlay(worldSizeX * worldSizeY * worldSizeZ, Blocks::AIR.textureOffsets[0]);
-    std::vector aTexOffset(worldSizeX * worldSizeY * worldSizeZ, Blocks::AIR.textureOffsets[0]);
-    std::vector models(worldSizeX * worldSizeY * worldSizeZ, glm::mat4(1.0f));
+    std::vector aTexOffsetOverlay(instanceSize, Blocks::AIR.textureOffsets[0]);
+    std::vector aTexOffset(instanceSize, Blocks::AIR.textureOffsets[0]);
+    std::vector models(instanceSize, glm::mat4(1.0f));
+    std::vector visibility(instanceSize, false);
 
 
     /*for (int x = 0; x < worldSizeX; x++) {
@@ -345,9 +357,49 @@ int main()
             for (int y = 0; y < blockHeight; y++) {
                 blocks[x][y][z] = Blocks::DIRT;
                 if (y == blockHeight - 1) blocks[x][y][z] = Blocks::GRASS_BLOCK;
-                aTexOffset[x * worldSizeY * worldSizeZ + y * worldSizeZ + z] = blocks[x][y][z].textureOffsets[0];
-                aTexOffsetOverlay[x * worldSizeY * worldSizeZ + y * worldSizeZ + z] = blocks[x][y][z].textureOffsetOverlays[0];
-                models[x * worldSizeY * worldSizeZ + y * worldSizeZ + z] = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
+                for (int i = 0; i < 6; i++) {
+                    size_t faceIndex = (x * worldSizeY * worldSizeZ + y * worldSizeZ + z) * 6 + i;
+                    aTexOffset[faceIndex] = blocks[x][y][z].textureOffsets[i];
+                    aTexOffsetOverlay[faceIndex] = blocks[x][y][z].textureOffsetOverlays[i];
+                    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
+                    switch (i) {
+                        case 0: break; // Front face
+                        case 1: model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Back face
+                        case 3: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Left face
+                        case 2: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Right face
+                        case 5: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Bottom face
+                        case 4: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Top face
+                        default: ;
+                    }
+                    models[faceIndex] = model;
+                }
+            }
+        }
+    }
+
+    for (int x = 0; x < worldSizeX; x++) {
+        for (int y = 0; y < worldSizeY; y++) {
+            for (int z = 0; z < worldSizeZ; z++) {
+                size_t faceIndex = (x * worldSizeY * worldSizeZ + y * worldSizeZ + z) * 6;
+                if (blocks[x][y][z] == Blocks::AIR) continue;
+                if (y + 1 >= worldSizeY || blocks[x][y + 1][z] == Blocks::AIR) {
+                    visibility[faceIndex + 4] = true;
+                }
+                if (y - 1 < 0 || blocks[x][y - 1][z] == Blocks::AIR) {
+                    visibility[faceIndex + 5] = true;
+                }
+                if (x + 1 >= worldSizeX || blocks[x + 1][y][z] == Blocks::AIR) {
+                    visibility[faceIndex + 3] = true;
+                }
+                if (x - 1 < 0 || blocks[x - 1][y][z] == Blocks::AIR) {
+                    visibility[faceIndex + 2] = true;
+                }
+                if (z + 1 >= worldSizeZ || blocks[x][y][z + 1] == Blocks::AIR) {
+                    visibility[faceIndex + 1] = true;
+                }
+                if (z - 1 < 0 || blocks[x][y][z - 1] == Blocks::AIR) {
+                    visibility[faceIndex] = true;
+                }
             }
         }
     }
@@ -357,26 +409,31 @@ int main()
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 
-    std::vector<float> combinedData(worldSizeX * worldSizeY * worldSizeZ * (2 + 2 + 16)); // 2 floats for each vec2, 16 floats for mat4
+    std::vector<float> combinedData(instanceSize * (2 + 2 + 16 + 1)); // 2 floats for each vec2, 16 floats for mat4
 
-    for (size_t i = 0; i < worldSizeX * worldSizeY * worldSizeZ; ++i) {
+    for (size_t i = 0; i < instanceSize; ++i) {
         // Add aTexOffset
-        combinedData[i * 20 + 0] = aTexOffset[i].x;
-        combinedData[i * 20 + 1] = aTexOffset[i].y;
+        combinedData[i * 21 + 0] = aTexOffset[i].x;
+        combinedData[i * 21 + 1] = aTexOffset[i].y;
 
         // Add aTexOffsetOverlay
-        combinedData[i * 20 + 2] = aTexOffsetOverlay[i].x;
-        combinedData[i * 20 + 3] = aTexOffsetOverlay[i].y;
+        combinedData[i * 21 + 2] = aTexOffsetOverlay[i].x;
+        combinedData[i * 21 + 3] = aTexOffsetOverlay[i].y;
 
         // Add model matrix
         const glm::mat4& mat = models[i];
 
         for (int j = 0; j < 4; ++j) {
-            combinedData[i * 20 + 4 + 4 * j + 0] = mat[j].x;
-            combinedData[i * 20 + 4 + 4 * j + 1] = mat[j].y;
-            combinedData[i * 20 + 4 + 4 * j + 2] = mat[j].z;
-            combinedData[i * 20 + 4 + 4 * j + 3] = mat[j].w;
+            combinedData[i * 21 + 4 + 4 * j + 0] = mat[j].x;
+            combinedData[i * 21 + 4 + 4 * j + 1] = mat[j].y;
+            combinedData[i * 21 + 4 + 4 * j + 2] = mat[j].z;
+            combinedData[i * 21 + 4 + 4 * j + 3] = mat[j].w;
         }
+        if (visibility[i]) {
+            combinedData[i * 21 + 4 + 16] = 1.0f;
+            continue;
+        }
+        combinedData[i * 21 + 4 + 16] = 0.0f;
     }
 
     //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -389,7 +446,7 @@ int main()
     glBufferData(GL_ARRAY_BUFFER, combinedData.size() * sizeof(float), combinedData.data(), GL_STATIC_DRAW);
 
 
-    size_t stride = (2 + 2 + 16) * sizeof(float);
+    size_t stride = (2 + 2 + 16 + 1) * sizeof(float);
 
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, static_cast<void *>(nullptr));
@@ -413,8 +470,12 @@ int main()
 
     glEnableVertexAttribArray(7);
     glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 16));
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribDivisor(7, 1);
+
+    glEnableVertexAttribArray(8);
+    glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 20));
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glVertexAttribDivisor(8, 1);
 
     glBindVertexArray(0);
 
@@ -465,7 +526,7 @@ int main()
         shaderGay.setInt("topTexture", 1);
         shaderGay.setVec4("tintColor", grassTint);
 
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 36, worldSizeX * worldSizeY * worldSizeZ);
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, instanceSize);
 
         glBindVertexArray(0);
 
