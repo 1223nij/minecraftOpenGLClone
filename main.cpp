@@ -7,6 +7,8 @@
 #include "shader.h"
 #include "camera.h"
 #define STB_IMAGE_IMPLEMENTATION
+#include <thread>
+
 #include "stb_image.h"
 #include <unordered_map>
 #include <glm/glm.hpp>
@@ -127,119 +129,142 @@ void deleteFace(int cn)
     models.erase(models.begin() + cn);
 }
 
+void generateChunkFaces(Chunk newChunk, int x, int z) {
+     for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
+        for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
+            for (int cz = 0; cz < CHUNK_SIZE_Z; cz++) {
+                glm::vec3 blockLocation = glm::vec3(cx + x * CHUNK_SIZE_X, cy, cz + z * CHUNK_SIZE_Z);
+                for (int i = 0; i < 6; i++) {
+                    // Calculate the flat index
+                    int index = (((x * chunkSizeZ + z) * CHUNK_SIZE_X + cx) * CHUNK_SIZE_Y + cy) * CHUNK_SIZE_Z * 6 + cz * 6 + i;
+
+                    // Assign texture offsets
+                    aTexOffset[index] = newChunk.blocks[cx][cy][cz].textureOffsets[i];
+                    aTexOffsetOverlay[index] = newChunk.blocks[cx][cy][cz].textureOffsetOverlays[i];
+
+                    // Calculate the model matrix
+                    glm::mat4 model = glm::translate(glm::mat4(1.0f), blockLocation);
+                    switch (i) {
+                        case 0: break; // Front face
+                        case 1: model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Back face
+                        case 3: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Left face
+                        case 2: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Right face
+                        case 5: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Bottom face
+                        case 4: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Top face
+                        default: ;
+                    }
+
+                    // Assign the model matrix
+                    models[index] = model;
+
+                    // Initialize visibility
+                    visibility[index] = false;
+                }
+            }
+        }
+    }
+}
+
+void generateNewChunkFaces(int x, int z) {
+    const Chunk newChunk(x, z);
+    generateChunkFaces(newChunk, x, z);
+    chunks[x][z] = newChunk;
+}
+
 int main()
 {
     aTexOffsetOverlay.resize(instanceSize);
     aTexOffset.resize(instanceSize);
     models.resize(instanceSize);
     visibility.resize(instanceSize);
-    int cnt = 0;
+    std::vector<std::thread> threads;
     for (int x = 0; x < chunkSizeX; x++) {
         for (int z = 0; z < chunkSizeZ; z++) {
-            Chunk newChunk(x, z);
-            for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
-                for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
-                    for (int cz = 0; cz < CHUNK_SIZE_Z; cz++) {
-                        glm::vec3 blockLocation = glm::vec3(cx + x * CHUNK_SIZE_X, cy, cz + z * CHUNK_SIZE_Z);
-                        for (int i = 0; i < 6; i++) {
-                            aTexOffset[cnt] = newChunk.blocks[cx][cy][cz].textureOffsets[i];
-                            aTexOffsetOverlay[cnt] = newChunk.blocks[cx][cy][cz].textureOffsetOverlays[i];
-                            glm::mat4 model = glm::translate(glm::mat4(1.0f), blockLocation);
-                            switch (i) {
-                                case 0: break; // Front face
-                                case 1: model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Back face
-                                case 3: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Left face
-                                case 2: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Right face
-                                case 5: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Bottom face
-                                case 4: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Top face
-                                default: ;
-                            }
-                            models[cnt] = model;
-                            visibility[cnt] = false;
-                            cnt++;
-                        }
-                    }
-                }
-            }
-            chunks[x][z] = newChunk;
+            threads.emplace_back(generateNewChunkFaces, x, z);
         }
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
     }
 
     std::cout << "Starting visibility check with size: " << visibility.size() << std::endl;
 
-    cnt = 0;
     for (int x = 0; x < chunkSizeX; x++) {
         for (int z = 0; z < chunkSizeZ; z++) {
-            //std::cout << "Checking chunk " << x << ", " << z << std::endl;
             Chunk chunk = chunks[x][z];
             for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
                 for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
                     for (int cz = 0; cz < CHUNK_SIZE_Z; cz++) {
-                        //std::cout << "Checking block " << cx << ", " << cy << ", " << cz << std::endl;
-
                         // Skip AIR blocks
                         if (chunk.blocks[cx][cy][cz] == Blocks::AIR) {
-                            cnt += 6;
                             continue;
                         }
 
-                        // Back face
-                        if (cz - 1 < 0) {
-                            if (z - 1 >= 0 && chunks[x][z - 1].blocks[cx][cy][CHUNK_SIZE_Z - 1] == Blocks::AIR) {
-                                visibility[cnt] = true;
+                        for (int i = 0; i < 6; i++) {
+                            int index = ((((x * chunkSizeZ + z) * CHUNK_SIZE_X + cx) * CHUNK_SIZE_Y + cy) * CHUNK_SIZE_Z + cz) * 6 + i;
+
+                            switch (i) {
+                                case 0: // Back face
+                                    if (cz - 1 < 0) {
+                                        if (z - 1 >= 0 && chunks[x][z - 1].blocks[cx][cy][CHUNK_SIZE_Z - 1] == Blocks::AIR) {
+                                            visibility[index] = true;
+                                        }
+                                    } else if (chunk.blocks[cx][cy][cz - 1] == Blocks::AIR) {
+                                        visibility[index] = true;
+                                    }
+                                    break;
+
+                                case 1: // Front face
+                                    if (cz + 1 >= CHUNK_SIZE_Z) {
+                                        if (z + 1 < chunks[x].size() && chunks[x][z + 1].blocks[cx][cy][0] == Blocks::AIR) {
+                                            visibility[index] = true;
+                                        }
+                                    } else if (chunk.blocks[cx][cy][cz + 1] == Blocks::AIR) {
+                                        visibility[index] = true;
+                                    }
+                                    break;
+
+                                case 2: // Left face
+                                    if (cx - 1 < 0) {
+                                        if (x - 1 >= 0 && chunks[x - 1][z].blocks[CHUNK_SIZE_X - 1][cy][cz] == Blocks::AIR) {
+                                            visibility[index] = true;
+                                        }
+                                    } else if (chunk.blocks[cx - 1][cy][cz] == Blocks::AIR) {
+                                        visibility[index] = true;
+                                    }
+                                    break;
+
+                                case 3: // Right face
+                                    if (cx + 1 >= CHUNK_SIZE_X) {
+                                        if (x + 1 < chunks.size() && chunks[x + 1][z].blocks[0][cy][cz] == Blocks::AIR) {
+                                            visibility[index] = true;
+                                        }
+                                    } else if (chunk.blocks[cx + 1][cy][cz] == Blocks::AIR) {
+                                        visibility[index] = true;
+                                    }
+                                    break;
+
+                                case 4: // Top face
+                                    if (cy + 1 >= CHUNK_SIZE_Y || chunk.blocks[cx][cy + 1][cz] == Blocks::AIR) {
+                                        visibility[index] = true;
+                                    }
+                                    break;
+
+                                case 5: // Bottom face
+                                    if (cy - 1 < 0 || chunk.blocks[cx][cy - 1][cz] == Blocks::AIR) {
+                                        visibility[index] = true;
+                                    }
+                                    break;
+                                default: ;
                             }
-                        } else if (chunk.blocks[cx][cy][cz - 1] == Blocks::AIR) {
-                            visibility[cnt] = true;
                         }
-                        cnt++;
-
-                        // Front face
-                        if (cz + 1 >= CHUNK_SIZE_Z) {
-                            if (z + 1 < chunks[x].size() && chunks[x][z + 1].blocks[cx][cy][0] == Blocks::AIR) {
-                                visibility[cnt] = true;
-                            }
-                        } else if (chunk.blocks[cx][cy][cz + 1] == Blocks::AIR) {
-                            visibility[cnt] = true;
-                        }
-                        cnt++;
-
-                        // Left face
-                        if (cx - 1 < 0) {
-                            if (x - 1 >= 0 && chunks[x - 1][z].blocks[CHUNK_SIZE_X - 1][cy][cz] == Blocks::AIR) {
-                                visibility[cnt] = true;
-                            }
-                        } else if (chunk.blocks[cx - 1][cy][cz] == Blocks::AIR) {
-                            visibility[cnt] = true;
-                        }
-                        cnt++;
-
-                        // Right face
-                        if (cx + 1 >= CHUNK_SIZE_X) {
-                            if (x + 1 < chunks.size() && chunks[x + 1][z].blocks[0][cy][cz] == Blocks::AIR) {
-                                visibility[cnt] = true;
-                            }
-                        } else if (chunk.blocks[cx + 1][cy][cz] == Blocks::AIR) {
-                            visibility[cnt] = true;
-                        }
-                        cnt++;
-
-                        // Top face
-                        if (cy + 1 >= CHUNK_SIZE_Y || chunk.blocks[cx][cy + 1][cz] == Blocks::AIR) {
-                            visibility[cnt] = true;
-                        }
-                        cnt++;
-
-                        // Bottom face
-                        if (cy - 1 < 0 || chunk.blocks[cx][cy - 1][cz] == Blocks::AIR) {
-                            visibility[cnt] = true;
-                        }
-                        cnt++;
                     }
                 }
             }
-
         }
     }
+
 
     std::cout << "Visibility check complete" << std::endl;
 
