@@ -8,5 +8,8 @@ add_executable(OpenGLProject main.cpp src/glad.c
         stb_image.h
         camera.h
         block.cpp
-        PerlinNoise.hpp)
+        PerlinNoise.hpp
+        chunk.cpp
+        settings.cpp
+        chunk.h)
 target_link_libraries(OpenGLProject GL GLEW glfw)

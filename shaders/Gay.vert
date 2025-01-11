@@ -9,7 +9,6 @@ layout (location = 4) in vec4 model1;
 layout (location = 5) in vec4 model2;
 layout (location = 6) in vec4 model3;
 layout (location = 7) in vec4 model4;
-layout (location = 8) in float visible;
 
 out vec2 TexCoord;
 
@@ -20,11 +19,6 @@ out vec2 TexCoord2;
 
 void main()
 {
-    if (visible == 0.0)
-    {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // Move vertices far off-screen
-        return;
-    }
     mat4 model;
     model[0] = model1;
     model[1] = model2;

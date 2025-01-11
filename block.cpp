@@ -51,7 +51,7 @@ struct Blocks {
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0]
     };
     static constexpr Block GRASS_BLOCK{
-        "Stone", "minecraft:grass_block",
+        "Grass Block", "minecraft:grass_block",
         glm::vec2{3, 0}, glm::vec2{3, 0},
         glm::vec2{3, 0}, glm::vec2{3, 0},
         glm::vec2{0, 0}, glm::vec2{2, 0},

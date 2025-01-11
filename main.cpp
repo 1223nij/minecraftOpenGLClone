@@ -8,15 +8,11 @@
 #include "camera.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-#include <vector>
+#include <unordered_map>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include "block.cpp"
-#include "PerlinNoise.hpp"
-
-constexpr unsigned int SCR_WIDTH = 1280;
-constexpr unsigned int SCR_HEIGHT = 768;
+#include "chunk.cpp"
 
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
@@ -28,84 +24,15 @@ float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
 
-struct Plane {
-    glm::vec3 normal;
-    float distance;
-};
+constexpr int BLOCKS_PER_CHUNK = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z;
+constexpr int blocksInWorld = BLOCKS_PER_CHUNK * chunkSizeX * chunkSizeZ;
 
-std::array<Plane, 6> extractFrustumPlanes(const glm::mat4& viewProjectionMatrix) {
-    std::array<Plane, 6> planes;
-
-    // Left
-    planes[0].normal.x = viewProjectionMatrix[0][3] + viewProjectionMatrix[0][0];
-    planes[0].normal.y = viewProjectionMatrix[1][3] + viewProjectionMatrix[1][0];
-    planes[0].normal.z = viewProjectionMatrix[2][3] + viewProjectionMatrix[2][0];
-    planes[0].distance = viewProjectionMatrix[3][3] + viewProjectionMatrix[3][0];
-
-    // Right
-    planes[1].normal.x = viewProjectionMatrix[0][3] - viewProjectionMatrix[0][0];
-    planes[1].normal.y = viewProjectionMatrix[1][3] - viewProjectionMatrix[1][0];
-    planes[1].normal.z = viewProjectionMatrix[2][3] - viewProjectionMatrix[2][0];
-    planes[1].distance = viewProjectionMatrix[3][3] - viewProjectionMatrix[3][0];
-
-    // Bottom
-    planes[2].normal.x = viewProjectionMatrix[0][3] + viewProjectionMatrix[0][1];
-    planes[2].normal.y = viewProjectionMatrix[1][3] + viewProjectionMatrix[1][1];
-    planes[2].normal.z = viewProjectionMatrix[2][3] + viewProjectionMatrix[2][1];
-    planes[2].distance = viewProjectionMatrix[3][3] + viewProjectionMatrix[3][1];
-
-    // Top
-    planes[3].normal.x = viewProjectionMatrix[0][3] - viewProjectionMatrix[0][1];
-    planes[3].normal.y = viewProjectionMatrix[1][3] - viewProjectionMatrix[1][1];
-    planes[3].normal.z = viewProjectionMatrix[2][3] - viewProjectionMatrix[2][1];
-    planes[3].distance = viewProjectionMatrix[3][3] - viewProjectionMatrix[3][1];
-
-    // Near
-    planes[4].normal.x = viewProjectionMatrix[0][3] + viewProjectionMatrix[0][2];
-    planes[4].normal.y = viewProjectionMatrix[1][3] + viewProjectionMatrix[1][2];
-    planes[4].normal.z = viewProjectionMatrix[2][3] + viewProjectionMatrix[2][2];
-    planes[4].distance = viewProjectionMatrix[3][3] + viewProjectionMatrix[3][2];
-
-    // Far
-    planes[5].normal.x = viewProjectionMatrix[0][3] - viewProjectionMatrix[0][2];
-    planes[5].normal.y = viewProjectionMatrix[1][3] - viewProjectionMatrix[1][2];
-    planes[5].normal.z = viewProjectionMatrix[2][3] - viewProjectionMatrix[2][2];
-    planes[5].distance = viewProjectionMatrix[3][3] - viewProjectionMatrix[3][2];
-
-    // Normalize the planes
-    for (auto& plane : planes) {
-        float length = glm::length(plane.normal);
-        plane.normal /= length;
-        plane.distance /= length;
-    }
-
-    return planes;
-}
-
-bool isBoxInFrustum(const std::array<Plane, 6>& planes, const glm::vec3& min, const glm::vec3& max) {
-    for (const auto& plane : planes) {
-        glm::vec3 positiveVertex = min;
-        glm::vec3 negativeVertex = max;
-
-        if (plane.normal.x >= 0) {
-            positiveVertex.x = max.x;
-            negativeVertex.x = min.x;
-        }
-        if (plane.normal.y >= 0) {
-            positiveVertex.y = max.y;
-            negativeVertex.y = min.y;
-        }
-        if (plane.normal.z >= 0) {
-            positiveVertex.z = max.z;
-            negativeVertex.z = min.z;
-        }
-
-        if (glm::dot(plane.normal, positiveVertex) + plane.distance < -1.0) {
-            return false;
-        }
-    }
-    return true;
-}
+int instanceSize = blocksInWorld * 6;
+std::vector chunks(chunkSizeX, std::vector(chunkSizeZ, Chunk(0, 0)));
+std::vector<glm::vec2> aTexOffsetOverlay;
+std::vector<glm::vec2> aTexOffset;
+std::vector<glm::mat4> models;
+std::vector<bool> visibility;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
@@ -132,31 +59,31 @@ void processInput(GLFWwindow *window)
 }
 
 
-void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
+void mouse_callback(GLFWwindow* window, const double xPosIn, const double yPosIn)
 {
-    auto xpos = static_cast<float>(xposIn);
-    auto ypos = static_cast<float>(yposIn);
+    const auto xPos = static_cast<float>(xPosIn);
+    const auto yPos = static_cast<float>(yPosIn);
 
     if (firstMouse)
     {
-        lastX = xpos;
-        lastY = ypos;
+        lastX = xPos;
+        lastY = yPos;
         firstMouse = false;
     }
 
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+    const float xOffset = xPos - lastX;
+    const float yOffset = lastY - yPos; // reversed since y-coordinates go from bottom to top
 
-    lastX = xpos;
-    lastY = ypos;
+    lastX = xPos;
+    lastY = yPos;
 
-    camera.ProcessMouseMovement(xoffset, yoffset);
+    camera.ProcessMouseMovement(xOffset, yOffset);
 }
 
 
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+void scroll_callback(GLFWwindow* window, double xOffset, const double yOffset)
 {
-    camera.ProcessMouseScroll(static_cast<float>(yoffset));
+    camera.ProcessMouseScroll(static_cast<float>(yOffset));
 }
 
 glm::vec4 getPixelColor(const std::string& filePath, int x, int y) {
@@ -176,24 +103,173 @@ glm::vec4 getPixelColor(const std::string& filePath, int x, int y) {
         return glm::vec4(0.0f); // Return black if coordinates are invalid
     }
 
-    // Calculate the index of the pixel in the data array
-    int index = (y * width + x) * 4; // Multiply by 4 for RGBA
+    // Calculate the indexes of the pixel in the data array
+    const int index = (y * width + x) * 4; // Multiply by 4 for RGBA
 
     // Extract the RGBA components
-    unsigned char r = data[index];
-    unsigned char g = data[index + 1];
-    unsigned char b = data[index + 2];
-    unsigned char a = data[index + 3];
+    const unsigned char r = data[index];
+    const unsigned char g = data[index + 1];
+    const unsigned char b = data[index + 2];
+    const unsigned char a = data[index + 3];
 
     // Free the image memory
     stbi_image_free(data);
 
     // Convert the components to a normalized float vector (0.0 - 1.0)
-    return glm::vec4(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
+    return {static_cast<float>(r) / 255.0f, static_cast<float>(g) / 255.0f, static_cast<float>(b) / 255.0f, static_cast<float>(a) / 255.0f};
+}
+
+void deleteFace(int cn)
+{
+    visibility.erase(visibility.begin() + cn);
+    aTexOffset.erase(aTexOffset.begin() + cn);
+    aTexOffsetOverlay.erase(aTexOffsetOverlay.begin() + cn);
+    models.erase(models.begin() + cn);
 }
 
 int main()
 {
+    aTexOffsetOverlay.resize(instanceSize);
+    aTexOffset.resize(instanceSize);
+    models.resize(instanceSize);
+    visibility.resize(instanceSize);
+    int cnt = 0;
+    for (int x = 0; x < chunkSizeX; x++) {
+        for (int z = 0; z < chunkSizeZ; z++) {
+            Chunk newChunk(x, z);
+            for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
+                for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
+                    for (int cz = 0; cz < CHUNK_SIZE_Z; cz++) {
+                        glm::vec3 blockLocation = glm::vec3(cx + x * CHUNK_SIZE_X, cy, cz + z * CHUNK_SIZE_Z);
+                        for (int i = 0; i < 6; i++) {
+                            aTexOffset[cnt] = newChunk.blocks[cx][cy][cz].textureOffsets[i];
+                            aTexOffsetOverlay[cnt] = newChunk.blocks[cx][cy][cz].textureOffsetOverlays[i];
+                            glm::mat4 model = glm::translate(glm::mat4(1.0f), blockLocation);
+                            switch (i) {
+                                case 0: break; // Front face
+                                case 1: model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Back face
+                                case 3: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Left face
+                                case 2: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Right face
+                                case 5: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Bottom face
+                                case 4: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Top face
+                                default: ;
+                            }
+                            models[cnt] = model;
+                            visibility[cnt] = false;
+                            cnt++;
+                        }
+                    }
+                }
+            }
+            chunks[x][z] = newChunk;
+        }
+    }
+
+    std::cout << "Starting visibility check with size: " << visibility.size() << std::endl;
+
+    cnt = 0;
+    for (int x = 0; x < chunkSizeX; x++) {
+        for (int z = 0; z < chunkSizeZ; z++) {
+            //std::cout << "Checking chunk " << x << ", " << z << std::endl;
+            Chunk chunk = chunks[x][z];
+            for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
+                for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
+                    for (int cz = 0; cz < CHUNK_SIZE_Z; cz++) {
+                        //std::cout << "Checking block " << cx << ", " << cy << ", " << cz << std::endl;
+
+                        // Skip AIR blocks
+                        if (chunk.blocks[cx][cy][cz] == Blocks::AIR) {
+                            cnt += 6;
+                            continue;
+                        }
+
+                        // Back face
+                        if (cz - 1 < 0) {
+                            if (z - 1 >= 0 && chunks[x][z - 1].blocks[cx][cy][CHUNK_SIZE_Z - 1] == Blocks::AIR) {
+                                visibility[cnt] = true;
+                            }
+                        } else if (chunk.blocks[cx][cy][cz - 1] == Blocks::AIR) {
+                            visibility[cnt] = true;
+                        }
+                        cnt++;
+
+                        // Front face
+                        if (cz + 1 >= CHUNK_SIZE_Z) {
+                            if (z + 1 < chunks[x].size() && chunks[x][z + 1].blocks[cx][cy][0] == Blocks::AIR) {
+                                visibility[cnt] = true;
+                            }
+                        } else if (chunk.blocks[cx][cy][cz + 1] == Blocks::AIR) {
+                            visibility[cnt] = true;
+                        }
+                        cnt++;
+
+                        // Left face
+                        if (cx - 1 < 0) {
+                            if (x - 1 >= 0 && chunks[x - 1][z].blocks[CHUNK_SIZE_X - 1][cy][cz] == Blocks::AIR) {
+                                visibility[cnt] = true;
+                            }
+                        } else if (chunk.blocks[cx - 1][cy][cz] == Blocks::AIR) {
+                            visibility[cnt] = true;
+                        }
+                        cnt++;
+
+                        // Right face
+                        if (cx + 1 >= CHUNK_SIZE_X) {
+                            if (x + 1 < chunks.size() && chunks[x + 1][z].blocks[0][cy][cz] == Blocks::AIR) {
+                                visibility[cnt] = true;
+                            }
+                        } else if (chunk.blocks[cx + 1][cy][cz] == Blocks::AIR) {
+                            visibility[cnt] = true;
+                        }
+                        cnt++;
+
+                        // Top face
+                        if (cy + 1 >= CHUNK_SIZE_Y || chunk.blocks[cx][cy + 1][cz] == Blocks::AIR) {
+                            visibility[cnt] = true;
+                        }
+                        cnt++;
+
+                        // Bottom face
+                        if (cy - 1 < 0 || chunk.blocks[cx][cy - 1][cz] == Blocks::AIR) {
+                            visibility[cnt] = true;
+                        }
+                        cnt++;
+                    }
+                }
+            }
+
+        }
+    }
+
+    std::cout << "Visibility check complete" << std::endl;
+
+    // Filter out invalid elements from all related vectors based on `visibility`.
+    size_t writeIndex = 0; // Tracks the index for writing valid elements
+    for (size_t readIndex = 0; readIndex < visibility.size(); ++readIndex) {
+        if (visibility[readIndex]) {
+            // Keep valid elements
+            aTexOffset[writeIndex] = aTexOffset[readIndex];
+            aTexOffsetOverlay[writeIndex] = aTexOffsetOverlay[readIndex];
+            models[writeIndex] = models[readIndex];
+            visibility[writeIndex] = visibility[readIndex];
+            ++writeIndex;
+        }
+    }
+
+    // Resize vectors to remove extra elements
+    aTexOffset.resize(writeIndex);
+    aTexOffsetOverlay.resize(writeIndex);
+    models.resize(writeIndex);
+    visibility.resize(writeIndex);
+
+
+    if (models.size() == visibility.size() && visibility.size() == aTexOffset.size() && aTexOffset.size() == aTexOffsetOverlay.size()) {
+        std::cout << "All vectors are the same size: " << models.size() << std::endl;
+        instanceSize = static_cast<int>(models.size());
+    } else {
+        std::cout << "Vectors are not the same size" << std::endl;
+    }
+
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -214,57 +290,6 @@ int main()
         std::cout << "Failed to initialize GLAD" << std::endl;
         return -1;
     }
-
-
-    float vertices[] = {
-        // Front face
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
-         0.5f, -0.5f, -0.5f,  0.0625f, 0.9375f, // Bottom-right
-         0.5f,  0.5f, -0.5f,  0.0625f, 1.0f, // Top-right
-         0.5f,  0.5f, -0.5f,  0.0625f, 1.0f, // Top-right
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, // Top-left
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
-
-        // Back face
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.9375f, // Bottom-left
-        -0.5f,  0.5f,  0.5f,  0.0f, 1.0f, // Top-left
-         0.5f,  0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-         0.5f,  0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-         0.5f, -0.5f,  0.5f,  0.0625f, 0.9375f, // Bottom-right
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.9375f, // Bottom-left
-
-        // Left face
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, // Top-left
-        -0.5f,  0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-        -0.5f,  0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-        -0.5f, -0.5f,  0.5f,  0.0625f, 0.9375f, // Bottom-right
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
-
-        // Right face
-         0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
-         0.5f, -0.5f,  0.5f,  0.0625f, 0.9375f, // Bottom-right
-         0.5f,  0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-         0.5f,  0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-         0.5f,  0.5f, -0.5f,  0.0f, 1.0f, // Top-left
-         0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
-
-        // Bottom face
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
-        -0.5f, -0.5f,  0.5f,  0.0f, 1.0f, // Top-left
-         0.5f, -0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-         0.5f, -0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-         0.5f, -0.5f, -0.5f,  0.0625f, 0.9375f, // Bottom-right
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
-
-        // Top face
-        -0.5f,  0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
-         0.5f,  0.5f, -0.5f,  0.0625f, 0.9375f, // Bottom-right
-         0.5f,  0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-         0.5f,  0.5f,  0.5f,  0.0625f, 1.0f, // Top-right
-        -0.5f,  0.5f,  0.5f,  0.0f, 1.0f, // Top-left
-        -0.5f,  0.5f, -0.5f,  0.0f, 0.9375f  // Bottom-left
-    };
 
     float faceVertices[] = {
         -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
@@ -322,118 +347,30 @@ int main()
 
     glEnable(GL_DEPTH_TEST);
 
-    const siv::PerlinNoise::seed_type seed = 123456u;
-    const siv::PerlinNoise perlin{ seed };
-
-
-
-    int worldSizeX = 16, worldSizeY = 20, worldSizeZ = 16;
-    const int instanceSize = worldSizeX * worldSizeY * worldSizeZ * 6;
-    std::vector blocks(worldSizeX, std::vector(worldSizeY, std::vector(worldSizeZ, Blocks::AIR)));
-    std::vector aTexOffsetOverlay(instanceSize, Blocks::AIR.textureOffsets[0]);
-    std::vector aTexOffset(instanceSize, Blocks::AIR.textureOffsets[0]);
-    std::vector models(instanceSize, glm::mat4(1.0f));
-    std::vector visibility(instanceSize, false);
-
-
-    /*for (int x = 0; x < worldSizeX; x++) {
-        for (int y = 0; y < worldSizeY; y++) {
-            for (int z = 0; z < worldSizeZ; z++) {
-                blocks[x][y][z] = Blocks::DIRT;
-                if (y == worldSizeY - 1) blocks[x][y][z] = Blocks::GRASS_BLOCK;
-                for (int i = 0; i < 6; i++) {
-                    aTexOffset[(x * worldSizeY * worldSizeZ + y * worldSizeZ + z) * 6 + i] = blocks[x][y][z].textureOffsets[i];
-                    aTexOffsetOverlay[(x * worldSizeY * worldSizeZ + y * worldSizeZ + z) * 6 + i] = blocks[x][y][z].textureOffsetOverlays[i];
-                    models[(x * worldSizeY * worldSizeZ + y * worldSizeZ + z) * 6 + i] = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
-                }
-            }
-        }
-    }*/
-
-    for (int x = 0; x < worldSizeX; x++) {
-        for (int z = 0; z < worldSizeZ; z++) {
-            const double noise = perlin.octave2D_01((x * 0.01), (z * 0.01), 4);
-            const int blockHeight = static_cast<int>(worldSizeY * noise);
-            for (int y = 0; y < blockHeight; y++) {
-                blocks[x][y][z] = Blocks::DIRT;
-                if (y == blockHeight - 1) blocks[x][y][z] = Blocks::GRASS_BLOCK;
-                for (int i = 0; i < 6; i++) {
-                    size_t faceIndex = (x * worldSizeY * worldSizeZ + y * worldSizeZ + z) * 6 + i;
-                    aTexOffset[faceIndex] = blocks[x][y][z].textureOffsets[i];
-                    aTexOffsetOverlay[faceIndex] = blocks[x][y][z].textureOffsetOverlays[i];
-                    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(x, y, z));
-                    switch (i) {
-                        case 0: break; // Front face
-                        case 1: model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Back face
-                        case 3: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Left face
-                        case 2: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Right face
-                        case 5: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Bottom face
-                        case 4: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Top face
-                        default: ;
-                    }
-                    models[faceIndex] = model;
-                }
-            }
-        }
-    }
-
-    for (int x = 0; x < worldSizeX; x++) {
-        for (int y = 0; y < worldSizeY; y++) {
-            for (int z = 0; z < worldSizeZ; z++) {
-                size_t faceIndex = (x * worldSizeY * worldSizeZ + y * worldSizeZ + z) * 6;
-                if (blocks[x][y][z] == Blocks::AIR) continue;
-                if (y + 1 >= worldSizeY || blocks[x][y + 1][z] == Blocks::AIR) {
-                    visibility[faceIndex + 4] = true;
-                }
-                if (y - 1 < 0 || blocks[x][y - 1][z] == Blocks::AIR) {
-                    visibility[faceIndex + 5] = true;
-                }
-                if (x + 1 >= worldSizeX || blocks[x + 1][y][z] == Blocks::AIR) {
-                    visibility[faceIndex + 3] = true;
-                }
-                if (x - 1 < 0 || blocks[x - 1][y][z] == Blocks::AIR) {
-                    visibility[faceIndex + 2] = true;
-                }
-                if (z + 1 >= worldSizeZ || blocks[x][y][z + 1] == Blocks::AIR) {
-                    visibility[faceIndex + 1] = true;
-                }
-                if (z - 1 < 0 || blocks[x][y][z - 1] == Blocks::AIR) {
-                    visibility[faceIndex] = true;
-                }
-            }
-        }
-    }
-
-    blocks[worldSizeX - 1][worldSizeY - 1][worldSizeZ - 1] = Blocks::AIR;
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 
-    std::vector<float> combinedData(instanceSize * (2 + 2 + 16 + 1)); // 2 floats for each vec2, 16 floats for mat4
+    std::vector<float> combinedData(instanceSize * (2 + 2 + 16)); // 2 floats for each vec2, 16 floats for mat4
 
     for (size_t i = 0; i < instanceSize; ++i) {
         // Add aTexOffset
-        combinedData[i * 21 + 0] = aTexOffset[i].x;
-        combinedData[i * 21 + 1] = aTexOffset[i].y;
+        combinedData[i * 20 + 0] = aTexOffset[i].x;
+        combinedData[i * 20 + 1] = aTexOffset[i].y;
 
         // Add aTexOffsetOverlay
-        combinedData[i * 21 + 2] = aTexOffsetOverlay[i].x;
-        combinedData[i * 21 + 3] = aTexOffsetOverlay[i].y;
+        combinedData[i * 20 + 2] = aTexOffsetOverlay[i].x;
+        combinedData[i * 20 + 3] = aTexOffsetOverlay[i].y;
 
         // Add model matrix
         const glm::mat4& mat = models[i];
 
         for (int j = 0; j < 4; ++j) {
-            combinedData[i * 21 + 4 + 4 * j + 0] = mat[j].x;
-            combinedData[i * 21 + 4 + 4 * j + 1] = mat[j].y;
-            combinedData[i * 21 + 4 + 4 * j + 2] = mat[j].z;
-            combinedData[i * 21 + 4 + 4 * j + 3] = mat[j].w;
+            combinedData[i * 20 + 4 + 4 * j + 0] = mat[j].x;
+            combinedData[i * 20 + 4 + 4 * j + 1] = mat[j].y;
+            combinedData[i * 20 + 4 + 4 * j + 2] = mat[j].z;
+            combinedData[i * 20 + 4 + 4 * j + 3] = mat[j].w;
         }
-        if (visibility[i]) {
-            combinedData[i * 21 + 4 + 16] = 1.0f;
-            continue;
-        }
-        combinedData[i * 21 + 4 + 16] = 0.0f;
     }
 
     //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -446,7 +383,7 @@ int main()
     glBufferData(GL_ARRAY_BUFFER, combinedData.size() * sizeof(float), combinedData.data(), GL_STATIC_DRAW);
 
 
-    size_t stride = (2 + 2 + 16 + 1) * sizeof(float);
+    constexpr GLsizei stride = (2 + 2 + 16) * sizeof(float);
 
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, static_cast<void *>(nullptr));
@@ -472,11 +409,6 @@ int main()
     glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 16));
     glVertexAttribDivisor(7, 1);
 
-    glEnableVertexAttribArray(8);
-    glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 20));
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glVertexAttribDivisor(8, 1);
-
     glBindVertexArray(0);
 
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -498,15 +430,13 @@ int main()
         glClearColor(0.5294f, 0.8078f, 0.9216f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        const float currentFrame = glfwGetTime();
+        const auto currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT), 0.1f, 100.0f);
-        glm::mat4 viewProjection = projection * view;
 
-        auto frustumPlanes = extractFrustumPlanes(viewProjection);
 
         shaderGay.use();
         shaderGay.setMat4("view", view);
@@ -536,6 +466,7 @@ int main()
 
     glDeleteVertexArrays(1, &VAO1);
     glDeleteBuffers(1, &VBO1);
+    glDeleteBuffers(1, &instanceVBO);
 
     glfwTerminate();
     return 0;
