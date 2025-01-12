@@ -2,18 +2,13 @@
 #include <fstream>
 #include <iostream>
 #include <iomanip>
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
 #include "shader.h"
 #include "camera.h"
 #define STB_IMAGE_IMPLEMENTATION
+#include <optional>
 #include <thread>
-
 #include "stb_image.h"
 #include <unordered_map>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 #include "chunk.cpp"
 
 float deltaTime = 0.0f;
@@ -29,12 +24,7 @@ bool firstMouse = true;
 constexpr int BLOCKS_PER_CHUNK = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z;
 constexpr int blocksInWorld = BLOCKS_PER_CHUNK * chunkSizeX * chunkSizeZ;
 
-int instanceSize = blocksInWorld * 6;
 std::vector chunks(chunkSizeX, std::vector(chunkSizeZ, Chunk(0, 0)));
-std::vector<glm::vec2> aTexOffsetOverlay;
-std::vector<glm::vec2> aTexOffset;
-std::vector<glm::mat4> models;
-std::vector<bool> visibility;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
@@ -121,180 +111,8 @@ glm::vec4 getPixelColor(const std::string& filePath, int x, int y) {
     return {static_cast<float>(r) / 255.0f, static_cast<float>(g) / 255.0f, static_cast<float>(b) / 255.0f, static_cast<float>(a) / 255.0f};
 }
 
-void deleteFace(int cn)
-{
-    visibility.erase(visibility.begin() + cn);
-    aTexOffset.erase(aTexOffset.begin() + cn);
-    aTexOffsetOverlay.erase(aTexOffsetOverlay.begin() + cn);
-    models.erase(models.begin() + cn);
-}
-
-void generateChunkFaces(Chunk newChunk, int x, int z) {
-     for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
-        for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
-            for (int cz = 0; cz < CHUNK_SIZE_Z; cz++) {
-                glm::vec3 blockLocation = glm::vec3(cx + x * CHUNK_SIZE_X, cy, cz + z * CHUNK_SIZE_Z);
-                for (int i = 0; i < 6; i++) {
-                    // Calculate the flat index
-                    int index = (((x * chunkSizeZ + z) * CHUNK_SIZE_X + cx) * CHUNK_SIZE_Y + cy) * CHUNK_SIZE_Z * 6 + cz * 6 + i;
-
-                    // Assign texture offsets
-                    aTexOffset[index] = newChunk.blocks[cx][cy][cz].textureOffsets[i];
-                    aTexOffsetOverlay[index] = newChunk.blocks[cx][cy][cz].textureOffsetOverlays[i];
-
-                    // Calculate the model matrix
-                    glm::mat4 model = glm::translate(glm::mat4(1.0f), blockLocation);
-                    switch (i) {
-                        case 0: break; // Front face
-                        case 1: model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Back face
-                        case 3: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Left face
-                        case 2: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Right face
-                        case 5: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Bottom face
-                        case 4: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Top face
-                        default: ;
-                    }
-
-                    // Assign the model matrix
-                    models[index] = model;
-
-                    // Initialize visibility
-                    visibility[index] = false;
-                }
-            }
-        }
-    }
-}
-
-void generateNewChunkFaces(int x, int z) {
-    const Chunk newChunk(x, z);
-    generateChunkFaces(newChunk, x, z);
-    chunks[x][z] = newChunk;
-}
-
 int main()
 {
-    aTexOffsetOverlay.resize(instanceSize);
-    aTexOffset.resize(instanceSize);
-    models.resize(instanceSize);
-    visibility.resize(instanceSize);
-    std::vector<std::thread> threads;
-    for (int x = 0; x < chunkSizeX; x++) {
-        for (int z = 0; z < chunkSizeZ; z++) {
-            threads.emplace_back(generateNewChunkFaces, x, z);
-        }
-    }
-
-    for (auto& thread : threads) {
-        thread.join();
-    }
-
-    std::cout << "Starting visibility check with size: " << visibility.size() << std::endl;
-
-    for (int x = 0; x < chunkSizeX; x++) {
-        for (int z = 0; z < chunkSizeZ; z++) {
-            Chunk chunk = chunks[x][z];
-            for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
-                for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
-                    for (int cz = 0; cz < CHUNK_SIZE_Z; cz++) {
-                        // Skip AIR blocks
-                        if (chunk.blocks[cx][cy][cz] == Blocks::AIR) {
-                            continue;
-                        }
-
-                        for (int i = 0; i < 6; i++) {
-                            int index = ((((x * chunkSizeZ + z) * CHUNK_SIZE_X + cx) * CHUNK_SIZE_Y + cy) * CHUNK_SIZE_Z + cz) * 6 + i;
-
-                            switch (i) {
-                                case 0: // Back face
-                                    if (cz - 1 < 0) {
-                                        if (z - 1 >= 0 && chunks[x][z - 1].blocks[cx][cy][CHUNK_SIZE_Z - 1] == Blocks::AIR) {
-                                            visibility[index] = true;
-                                        }
-                                    } else if (chunk.blocks[cx][cy][cz - 1] == Blocks::AIR) {
-                                        visibility[index] = true;
-                                    }
-                                    break;
-
-                                case 1: // Front face
-                                    if (cz + 1 >= CHUNK_SIZE_Z) {
-                                        if (z + 1 < chunks[x].size() && chunks[x][z + 1].blocks[cx][cy][0] == Blocks::AIR) {
-                                            visibility[index] = true;
-                                        }
-                                    } else if (chunk.blocks[cx][cy][cz + 1] == Blocks::AIR) {
-                                        visibility[index] = true;
-                                    }
-                                    break;
-
-                                case 2: // Left face
-                                    if (cx - 1 < 0) {
-                                        if (x - 1 >= 0 && chunks[x - 1][z].blocks[CHUNK_SIZE_X - 1][cy][cz] == Blocks::AIR) {
-                                            visibility[index] = true;
-                                        }
-                                    } else if (chunk.blocks[cx - 1][cy][cz] == Blocks::AIR) {
-                                        visibility[index] = true;
-                                    }
-                                    break;
-
-                                case 3: // Right face
-                                    if (cx + 1 >= CHUNK_SIZE_X) {
-                                        if (x + 1 < chunks.size() && chunks[x + 1][z].blocks[0][cy][cz] == Blocks::AIR) {
-                                            visibility[index] = true;
-                                        }
-                                    } else if (chunk.blocks[cx + 1][cy][cz] == Blocks::AIR) {
-                                        visibility[index] = true;
-                                    }
-                                    break;
-
-                                case 4: // Top face
-                                    if (cy + 1 >= CHUNK_SIZE_Y || chunk.blocks[cx][cy + 1][cz] == Blocks::AIR) {
-                                        visibility[index] = true;
-                                    }
-                                    break;
-
-                                case 5: // Bottom face
-                                    if (cy - 1 < 0 || chunk.blocks[cx][cy - 1][cz] == Blocks::AIR) {
-                                        visibility[index] = true;
-                                    }
-                                    break;
-                                default: ;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-
-    std::cout << "Visibility check complete" << std::endl;
-
-    // Filter out invalid elements from all related vectors based on `visibility`.
-    size_t writeIndex = 0; // Tracks the index for writing valid elements
-    for (size_t readIndex = 0; readIndex < visibility.size(); ++readIndex) {
-        if (visibility[readIndex]) {
-            // Keep valid elements
-            aTexOffset[writeIndex] = aTexOffset[readIndex];
-            aTexOffsetOverlay[writeIndex] = aTexOffsetOverlay[readIndex];
-            models[writeIndex] = models[readIndex];
-            visibility[writeIndex] = visibility[readIndex];
-            ++writeIndex;
-        }
-    }
-
-    // Resize vectors to remove extra elements
-    aTexOffset.resize(writeIndex);
-    aTexOffsetOverlay.resize(writeIndex);
-    models.resize(writeIndex);
-    visibility.resize(writeIndex);
-
-
-    if (models.size() == visibility.size() && visibility.size() == aTexOffset.size() && aTexOffset.size() == aTexOffsetOverlay.size()) {
-        std::cout << "All vectors are the same size: " << models.size() << std::endl;
-        instanceSize = static_cast<int>(models.size());
-    } else {
-        std::cout << "Vectors are not the same size" << std::endl;
-    }
-
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -357,6 +175,50 @@ int main()
 
     glBindVertexArray(0);
 
+    std::cout << "Starting chunk initialization" << std::endl;
+    std::vector<std::thread> threads;
+    for (int x = 0; x < chunkSizeX; x++) {
+        for (int z = 0; z < chunkSizeZ; z++) {
+            chunks[x][z] = Chunk(x, z);
+            std::cout << "Initialized Chunk at (" << x << ", " << z << ")\n";
+        }
+    }
+
+    std::mutex chunkMutex;
+
+    for (int x = 0; x < chunkSizeX; x++) {
+        for (int z = 0; z < chunkSizeZ; z++) {
+            threads.emplace_back([&chunk = chunks[x][z], x, z, positiveX = (x + 1 < chunkSizeX ? &chunks[x + 1][z] : nullptr),
+                                  negativeX = (x - 1 >= 0 ? &chunks[x - 1][z] : nullptr),
+                                  positiveZ = (z + 1 < chunkSizeZ ? &chunks[x][z + 1] : nullptr),
+                                  negativeZ = (z - 1 >= 0 ? &chunks[x][z - 1] : nullptr), &chunkMutex]() {
+                                      std::lock_guard<std::mutex> lock(chunkMutex);
+                chunk.generateChunkData(x, z, positiveX, negativeX, positiveZ, negativeZ);
+            });
+            /*Chunk* nX = nullptr;
+            if (x - 1 >= 0) {
+                nX = &chunks[x - 1][z];
+            }
+            Chunk* pX = nullptr;
+            if (x + 1 < chunkSizeX) {
+                pX = &chunks[x + 1][z];
+            }
+            Chunk* nZ = nullptr;
+            if (z - 1 >= 0) {
+                nZ = &chunks[x][z - 1];
+            }
+            Chunk* pZ = nullptr;
+            if (z + 1 < chunkSizeZ) {
+                pZ = &chunks[x][z + 1];
+            }
+            chunks[x][z].generateChunkData(x, z, pX, nX, pZ, nZ);*/
+        }
+    }
+
+    /*for (auto& thread : threads) {
+        thread.join();
+    }*/
+
 
     int width, height, nrChannels;
     stbi_set_flip_vertically_on_load(true);
@@ -376,65 +238,6 @@ int main()
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 
-    std::vector<float> combinedData(instanceSize * (2 + 2 + 16)); // 2 floats for each vec2, 16 floats for mat4
-
-    for (size_t i = 0; i < instanceSize; ++i) {
-        // Add aTexOffset
-        combinedData[i * 20 + 0] = aTexOffset[i].x;
-        combinedData[i * 20 + 1] = aTexOffset[i].y;
-
-        // Add aTexOffsetOverlay
-        combinedData[i * 20 + 2] = aTexOffsetOverlay[i].x;
-        combinedData[i * 20 + 3] = aTexOffsetOverlay[i].y;
-
-        // Add model matrix
-        const glm::mat4& mat = models[i];
-
-        for (int j = 0; j < 4; ++j) {
-            combinedData[i * 20 + 4 + 4 * j + 0] = mat[j].x;
-            combinedData[i * 20 + 4 + 4 * j + 1] = mat[j].y;
-            combinedData[i * 20 + 4 + 4 * j + 2] = mat[j].z;
-            combinedData[i * 20 + 4 + 4 * j + 3] = mat[j].w;
-        }
-    }
-
-    //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-    unsigned int instanceVBO;
-    glGenBuffers(1, &instanceVBO);
-    glBindVertexArray(VAO1);
-    glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
-
-    glBufferData(GL_ARRAY_BUFFER, combinedData.size() * sizeof(float), combinedData.data(), GL_STATIC_DRAW);
-
-
-    constexpr GLsizei stride = (2 + 2 + 16) * sizeof(float);
-
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, static_cast<void *>(nullptr));
-    glVertexAttribDivisor(2, 1);
-
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 2));
-    glVertexAttribDivisor(3, 1);
-
-    glEnableVertexAttribArray(4);
-    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 4));
-    glVertexAttribDivisor(4, 1);
-
-    glEnableVertexAttribArray(5);
-    glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 8));
-    glVertexAttribDivisor(5, 1);
-
-    glEnableVertexAttribArray(6);
-    glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 12));
-    glVertexAttribDivisor(6, 1);
-
-    glEnableVertexAttribArray(7);
-    glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 16));
-    glVertexAttribDivisor(7, 1);
-
-    glBindVertexArray(0);
 
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable( GL_BLEND );
@@ -460,7 +263,7 @@ int main()
         lastFrame = currentFrame;
 
         glm::mat4 view = camera.GetViewMatrix();
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT), 0.1f, 100.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT), 0.1f, 1000.0f);
 
 
         shaderGay.use();
@@ -481,8 +284,43 @@ int main()
         shaderGay.setInt("topTexture", 1);
         shaderGay.setVec4("tintColor", grassTint);
 
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, instanceSize);
+        glBindVertexArray(VAO1);
+        for (int x = 0; x < chunkSizeX; x++) {
+            for (int z = 0; z < chunkSizeZ; z++) {
+                //chunks[x][z].setupBuffer();
+                GLuint instanceVBO;
+                glGenBuffers(1, &instanceVBO);
 
+                glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
+                glBufferData(GL_ARRAY_BUFFER, chunks[x][z].combinedData.size() * sizeof(float), chunks[x][z].combinedData.data(), GL_STATIC_DRAW);
+                constexpr GLsizei stride = (2 + 2 + 16) * sizeof(float);
+                glEnableVertexAttribArray(2);
+                glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, static_cast<void *>(nullptr));
+                glVertexAttribDivisor(2, 1);
+
+                glEnableVertexAttribArray(3);
+                glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 2));
+                glVertexAttribDivisor(3, 1);
+
+                glEnableVertexAttribArray(4);
+                glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 4));
+                glVertexAttribDivisor(4, 1);
+
+                glEnableVertexAttribArray(5);
+                glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 8));
+                glVertexAttribDivisor(5, 1);
+
+                glEnableVertexAttribArray(6);
+                glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 12));
+                glVertexAttribDivisor(6, 1);
+
+                glEnableVertexAttribArray(7);
+                glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 16));
+                glVertexAttribDivisor(7, 1);
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, chunks[x][z].combinedData.size() / 20);
+            }
+        }
         glBindVertexArray(0);
 
         glfwSwapBuffers(window);
@@ -491,7 +329,6 @@ int main()
 
     glDeleteVertexArrays(1, &VAO1);
     glDeleteBuffers(1, &VBO1);
-    glDeleteBuffers(1, &instanceVBO);
 
     glfwTerminate();
     return 0;
