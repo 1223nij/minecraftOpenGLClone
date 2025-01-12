@@ -176,19 +176,27 @@ int main()
         -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
          0.5f, -0.5f, -0.5f,  0.0625f, 0.9375f, // Bottom-right
          0.5f,  0.5f, -0.5f,  0.0625f, 1.0f, // Top-right
-         0.5f,  0.5f, -0.5f,  0.0625f, 1.0f, // Top-right
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, // Top-left
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.9375f, // Bottom-left
+        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f  // Top-left
     };
 
-    unsigned int VAO1, VBO1;
+    unsigned int indices[] = {
+        0, 1, 2, // First triangle
+        2, 3, 0  // Second triangle
+    };
+
+
+    unsigned int VAO1, VBO1, EBO;
     glGenVertexArrays(1, &VAO1);
     glGenBuffers(1, &VBO1);
+    glGenBuffers(1, &EBO);
 
     glBindVertexArray(VAO1);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO1);
     glBufferData(GL_ARRAY_BUFFER, sizeof(faceVertices), faceVertices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), static_cast<void *>(nullptr));
     glEnableVertexAttribArray(0);
@@ -223,6 +231,8 @@ int main()
     glGenBuffers(1, &instanceVBO);
     glBindVertexArray(VAO1);
     glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
+
+    std::cout << "Instance VBO size: " << instanceVBOSize << std::endl;;
 
     //int size = chunks[0][0].generateFaces(0, 0);
     //std::cout << size << std::endl;
@@ -309,8 +319,7 @@ int main()
         shaderGay.setInt("topTexture", 1);
         shaderGay.setVec4("tintColor", grassTint);
 
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderedChunks * BLOCKS_PER_CHUNK * 6);
-
+        glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, renderedChunks * BLOCKS_PER_CHUNK * 6);
         glBindVertexArray(0);
 
         glfwSwapBuffers(window);
