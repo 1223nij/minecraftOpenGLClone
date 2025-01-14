@@ -5,26 +5,34 @@
 #include "shader.h"
 #include "camera.h"
 #define STB_IMAGE_IMPLEMENTATION
+#include <map>
 #include <optional>
 #include <thread>
 #include "stb_image.h"
 #include <unordered_map>
 #include "chunk.cpp"
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
 
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 float yaw, pitch, fov = 90;
 
-Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+Camera camera(glm::vec3(0.0f, 80.0f, 0.0f));
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
 
 constexpr int BLOCKS_PER_CHUNK = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z;
-constexpr int blocksInWorld = BLOCKS_PER_CHUNK * chunkSizeX * chunkSizeZ;
 
-std::vector chunks(chunkSizeX, std::vector(chunkSizeZ, Chunk(0, 0)));
+//std::vector chunks(chunkSizeX, std::vector(chunkSizeZ, Chunk(0, 0)));
+
+std::map<std::pair<int, int>, Chunk> chunkMap;
+
+std::vector<std::thread> threads;
+std::vector<Chunk*> renderedChunks;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
@@ -111,6 +119,58 @@ glm::vec4 getPixelColor(const std::string& filePath, int x, int y) {
     return {static_cast<float>(r) / 255.0f, static_cast<float>(g) / 255.0f, static_cast<float>(b) / 255.0f, static_cast<float>(a) / 255.0f};
 }
 
+std::mutex chunkMutex;  // To protect shared resources
+std::atomic<bool> cleanupInProgress(false);  // To prevent overlapping cleanups
+
+void cleanupChunksAsync(const glm::vec2& chunkPosition,
+                        std::map<std::pair<int, int>, Chunk>& chunkMap,
+                        std::vector<Chunk*>& renderedChunks,
+                        int cleanupRadius) {
+    if (cleanupInProgress) return; // Skip if a cleanup is already in progress
+    cleanupInProgress = true;
+
+    std::thread([chunkPosition, &chunkMap, &renderedChunks, cleanupRadius]() {
+        std::vector<std::pair<int, int>> chunksToRemove;
+
+        // Identify chunks to be removed
+        {
+            std::lock_guard<std::mutex> lock(chunkMutex);
+            for (const auto& [position, chunk] : chunkMap) {
+                int dx = position.first - static_cast<int>(chunkPosition.x);
+                int dz = position.second - static_cast<int>(chunkPosition.y);
+
+                if (std::abs(dx) > cleanupRadius || std::abs(dz) > cleanupRadius) {
+                    chunksToRemove.push_back(position);
+                }
+            }
+        }
+
+        // Remove chunks from chunkMap and renderedChunks
+        {
+            std::lock_guard<std::mutex> lock(chunkMutex);
+            for (const auto& position : chunksToRemove) {
+                auto it = chunkMap.find(position);
+                if (it != chunkMap.end()) {
+                    // Remove from chunkMap
+                    Chunk* chunkPtr = &it->second;
+                    chunkMap.erase(it);
+
+                    // Remove from renderedChunks
+                    auto renderedIt = std::find(renderedChunks.begin(), renderedChunks.end(), chunkPtr);
+                    if (renderedIt != renderedChunks.end()) {
+                        renderedChunks.erase(renderedIt);
+                    }
+                }
+            }
+        }
+
+        std::cout << "Async cleanup complete. Removed " << chunksToRemove.size() << " chunks.\n";
+        cleanupInProgress = false;
+    }).detach(); // Detach the thread to allow it to run independently
+}
+
+
+
 int main()
 {
     glfwInit();
@@ -175,18 +235,17 @@ int main()
 
     glBindVertexArray(0);
 
-    std::cout << "Starting chunk initialization" << std::endl;
-    std::vector<std::thread> threads;
+    /*std::cout << "Starting chunk initialization" << std::endl;
     for (int x = 0; x < chunkSizeX; x++) {
         for (int z = 0; z < chunkSizeZ; z++) {
             chunks[x][z] = Chunk(x, z);
             std::cout << "Initialized Chunk at (" << x << ", " << z << ")\n";
         }
-    }
+    }*/
 
     std::mutex chunkMutex;
 
-    for (int x = 0; x < chunkSizeX; x++) {
+    /*for (int x = 0; x < chunkSizeX; x++) {
         for (int z = 0; z < chunkSizeZ; z++) {
             threads.emplace_back([&chunk = chunks[x][z], x, z, positiveX = (x + 1 < chunkSizeX ? &chunks[x + 1][z] : nullptr),
                                   negativeX = (x - 1 >= 0 ? &chunks[x - 1][z] : nullptr),
@@ -195,7 +254,7 @@ int main()
                                       std::lock_guard<std::mutex> lock(chunkMutex);
                 chunk.generateChunkData(x, z, positiveX, negativeX, positiveZ, negativeZ);
             });
-            /*Chunk* nX = nullptr;
+            Chunk* nX = nullptr;
             if (x - 1 >= 0) {
                 nX = &chunks[x - 1][z];
             }
@@ -211,9 +270,9 @@ int main()
             if (z + 1 < chunkSizeZ) {
                 pZ = &chunks[x][z + 1];
             }
-            chunks[x][z].generateChunkData(x, z, pX, nX, pZ, nZ);*/
+            chunks[x][z].generateChunkData(x, z, pX, nX, pZ, nZ);
         }
-    }
+    }*/
 
     /*for (auto& thread : threads) {
         thread.join();
@@ -222,7 +281,7 @@ int main()
 
     int width, height, nrChannels;
     stbi_set_flip_vertically_on_load(true);
-    unsigned char *data = stbi_load("../images/terrain.png", &width, &height, &nrChannels, 0);
+    unsigned char *data = stbi_load("../images/terrain.png", &width, &height, &nrChannels, STBI_rgb_alpha);
     unsigned int texture;
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
@@ -250,7 +309,37 @@ int main()
 
     std::cout << "R: " << grassTint.r << " G: " << grassTint.g << " B: " << grassTint.b << std::endl;
 
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiWindowFlags_AlwaysAutoResize;
+
+    // Setup Platform/Renderer backends
+    ImGui_ImplGlfw_InitForOpenGL(window, true);          // Second param install_callback=true will install GLFW callbacks and chain to existing ones.
+    ImGui_ImplOpenGL3_Init();
+
     while (!glfwWindowShouldClose(window)) {
+        glm::vec2 chunkPosition = glm::vec2(floor(camera.Position.x / 16), floor(camera.Position.z / 16));
+        cleanupChunksAsync(chunkPosition, chunkMap, renderedChunks, cleanupRadius);
+        glfwPollEvents();
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        if (ImGui::Begin("Debugging Information", nullptr, io.ConfigFlags)) {
+            ImGui::Text(("Position: " + std::to_string(camera.Position.x) + " " + std::to_string(camera.Position.y) + " " + std::to_string(camera.Position.z)).c_str());
+            ImGui::Spacing();
+            ImGui::Text(("Block: " + std::to_string(static_cast<int>(floor(camera.Position.x))) + " " +
+                std::to_string(static_cast<int>(floor(camera.Position.y))) + " " +
+                std::to_string(static_cast<int>(floor(camera.Position.z)))).c_str());
+            ImGui::Spacing();
+            ImGui::Text(("Chunk: " + std::to_string(static_cast<int>(floor(camera.Position.x / 16))) + " " +
+                std::to_string(static_cast<int>(floor(camera.Position.z / 16)))).c_str());
+        }
+        ImGui::End();
+        //ImGui::ShowDemoWindow();
         processInput(window);
         glfwSetCursorPosCallback(window, mouse_callback);
         glfwSetScrollCallback(window, scroll_callback);
@@ -285,52 +374,102 @@ int main()
         shaderGay.setVec4("tintColor", grassTint);
 
         glBindVertexArray(VAO1);
-        for (int x = 0; x < chunkSizeX; x++) {
-            for (int z = 0; z < chunkSizeZ; z++) {
-                //chunks[x][z].setupBuffer();
-                GLuint instanceVBO;
-                glGenBuffers(1, &instanceVBO);
-
-                glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
-                glBufferData(GL_ARRAY_BUFFER, chunks[x][z].combinedData.size() * sizeof(float), chunks[x][z].combinedData.data(), GL_STATIC_DRAW);
-                constexpr GLsizei stride = (2 + 2 + 16) * sizeof(float);
-                glEnableVertexAttribArray(2);
-                glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, static_cast<void *>(nullptr));
-                glVertexAttribDivisor(2, 1);
-
-                glEnableVertexAttribArray(3);
-                glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 2));
-                glVertexAttribDivisor(3, 1);
-
-                glEnableVertexAttribArray(4);
-                glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 4));
-                glVertexAttribDivisor(4, 1);
-
-                glEnableVertexAttribArray(5);
-                glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 8));
-                glVertexAttribDivisor(5, 1);
-
-                glEnableVertexAttribArray(6);
-                glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 12));
-                glVertexAttribDivisor(6, 1);
-
-                glEnableVertexAttribArray(7);
-                glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 16));
-                glVertexAttribDivisor(7, 1);
-                glBindBuffer(GL_ARRAY_BUFFER, 0);
-                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, chunks[x][z].combinedData.size() / 20);
+        GLuint instanceVBOla;
+        glGenBuffers(1, &instanceVBOla);
+        std::vector<float> combinedDeta;
+        int chunkRendered = 0, chunkLooped = 0;
+        for (int x = chunkPosition.x - renderDistance; x <= chunkPosition.x + renderDistance; x++) {
+            for (int z = chunkPosition.y - renderDistance; z <= chunkPosition.y + renderDistance; z++) {
+                chunkLooped++;
+                if (!chunkMap.contains({x, z})) {
+                    chunkMap.emplace(std::make_pair(x, z), Chunk(x, z));
+                    continue;
+                }
+                Chunk* chunka;
+                {
+                    std::lock_guard<std::mutex> lock(chunkMutex);
+                    if (!chunkMap.contains({x, z})) {
+                        chunkMap.emplace(std::make_pair(x, z), Chunk(x, z));
+                    }
+                    chunka = &chunkMap.at({x, z});
+                }
+                if (std::ranges::find(renderedChunks, chunka) == renderedChunks.end()) {
+                    renderedChunks.push_back(chunka);
+                    Chunk* nX = nullptr;
+                    if (!chunkMap.contains({x - 1, z})) {
+                        chunkMap.emplace(std::make_pair(x - 1, z), Chunk(x - 1, z));
+                    }
+                    nX = &chunkMap.at({x - 1, z});
+                    Chunk* pX = nullptr;
+                    if (!chunkMap.contains({x + 1, z})) {
+                        chunkMap.emplace(std::make_pair(x + 1, z), Chunk(x + 1, z));
+                    }
+                    pX = &chunkMap.at({x + 1, z});
+                    Chunk* nZ = nullptr;
+                    if (!chunkMap.contains({x, z - 1})) {
+                        chunkMap.emplace(std::make_pair(x, z - 1), Chunk(x, z - 1));
+                    }
+                    nZ = &chunkMap.at({x, z - 1});
+                    Chunk* pZ = nullptr;
+                    if (!chunkMap.contains({x, z + 1})) {
+                        chunkMap.emplace(std::make_pair(x, z + 1), Chunk(x, z + 1));
+                    }
+                    pZ = &chunkMap.at({x, z + 1});
+                    //chunka->generateChunkData(x, z, pX, nX, pZ, nZ);
+                    threads.emplace_back([chunka, x, z, nX, pX, nZ, pZ]() {
+                        chunka->generateChunkData(x, z, pX, nX, pZ, nZ);
+                    });
+                    continue;
+                }
+                combinedDeta.insert(std::end(combinedDeta), std::begin(chunka->combinedData), std::end(chunka->combinedData));
+                chunkRendered++;
             }
         }
+
+        glBindBuffer(GL_ARRAY_BUFFER, instanceVBOla);
+        glBufferData(GL_ARRAY_BUFFER, combinedDeta.size() * sizeof(float), combinedDeta.data(), GL_STATIC_DRAW);
+        constexpr GLsizei stride = (2 + 2 + 16) * sizeof(float);
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, static_cast<void *>(nullptr));
+        glVertexAttribDivisor(2, 1);
+
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 2));
+        glVertexAttribDivisor(3, 1);
+
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 4));
+        glVertexAttribDivisor(4, 1);
+
+        glEnableVertexAttribArray(5);
+        glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 8));
+        glVertexAttribDivisor(5, 1);
+
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 12));
+        glVertexAttribDivisor(6, 1);
+
+        glEnableVertexAttribArray(7);
+        glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 16));
+        glVertexAttribDivisor(7, 1);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, combinedDeta.size() / 20);
+        glDeleteBuffers(1, &instanceVBOla);
         glBindVertexArray(0);
 
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
         glfwSwapBuffers(window);
-        glfwPollEvents();
     }
 
     glDeleteVertexArrays(1, &VAO1);
     glDeleteBuffers(1, &VBO1);
 
     glfwTerminate();
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
     return 0;
 }
 

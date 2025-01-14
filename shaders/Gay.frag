@@ -16,5 +16,8 @@ void main()
 
    // Use the top texture if it is not fully transparent, otherwise use the base texture
    FragColor = mix(baseColor, topColor, topColor.a);
+   if (FragColor.a == 0.0) {
+      discard;
+   }
    //FragColor = texture(topTexture, TexCoord2);
 }

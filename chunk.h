@@ -20,10 +20,15 @@ public:
 
     inline Chunk(int chunkX, int chunkZ);
 
+    inline bool operator==(const Chunk& other) const;
+
     inline void generateChunk(int chunkX, int chunkZ);
     inline void setupBuffer();
     inline void generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, Chunk* positiveZ, Chunk* negativeZ);
+    inline void generateTree(int x, int baseHeight, int z);
 private:
+    int chunkX; // X coordinate of the chunk
+    int chunkZ; // Z coordinate of the chunk
     std::vector<std::vector<std::vector<Block>>> blocks;
 };
 

@@ -2,7 +2,7 @@
 #include "settings.cpp"
 #include <iostream>
 
-Chunk::Chunk(int chunkX, int chunkZ){
+Chunk::Chunk(int chunkX, int chunkZ) : chunkX(chunkX), chunkZ(chunkZ){
     blocks.resize(
         CHUNK_SIZE_X,
         std::vector(
@@ -13,18 +13,61 @@ Chunk::Chunk(int chunkX, int chunkZ){
     generateChunk(chunkX, chunkZ);
 }
 
+bool Chunk::operator==(const Chunk& other) const {
+    return this->chunkX == other.chunkX && this->chunkZ == other.chunkZ;
+}
+
 void Chunk::generateChunk(int chunkX, int chunkZ) {
     const siv::PerlinNoise perlin{ seed };
+
     for (int x = 0; x < CHUNK_SIZE_X; ++x) {
         for (int z = 0; z < CHUNK_SIZE_Z; ++z) {
             double noise = perlin.octave2D_01((chunkX * CHUNK_SIZE_X + x) * 0.01, (chunkZ * CHUNK_SIZE_Z + z) * 0.01, 4);
             const int blockHeight = static_cast<int>(CHUNK_SIZE_Y * noise);
 
+            // Generate the terrain
             for (int y = 0; y < blockHeight; ++y) {
                 blocks[x][y][z] = Blocks::DIRT;
                 if (y == blockHeight - 1) {
                     blocks[x][y][z] = Blocks::GRASS_BLOCK;
                 }
+            }
+
+            // Add trees with some probability
+            if (blockHeight > 4 && (rand() % 1000) < 10) { // 10% chance to spawn a tree
+                generateTree(x, blockHeight, z);
+            }
+        }
+    }
+}
+
+void Chunk::generateTree(int x, int baseHeight, int z) {
+    const int treeHeight = 5 + rand() % 3; // Random tree height between 5 and 7
+    const int foliageStart = baseHeight + treeHeight - 2;
+
+    // Generate trunk
+    for (int y = baseHeight; y < baseHeight + treeHeight; ++y) {
+        if (y < CHUNK_SIZE_Y) {
+            blocks[x][y][z] = Blocks::OAK_LOG;
+        }
+    }
+
+    // Generate foliage
+    for (int dx = -2; dx <= 2; ++dx) {
+        for (int dz = -2; dz <= 2; ++dz) {
+            for (int dy = 0; dy <= 2; ++dy) {
+                int fx = x + dx;
+                int fz = z + dz;
+                int fy = foliageStart + dy;
+
+                if (fx >= 0 && fx < CHUNK_SIZE_X &&
+                    fy >= 0 && fy < CHUNK_SIZE_Y &&
+                    fz >= 0 && fz < CHUNK_SIZE_Z) {
+                    // Use a simple distance-based check to create a spherical foliage
+                    if (dx * dx + dz * dz + dy <= 4) {
+                        blocks[fx][fy][fz] = Blocks::OAK_LEAVES;
+                    }
+                    }
             }
         }
     }
@@ -45,10 +88,72 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
     for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
         for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
             for (int cz = 0; cz < CHUNK_SIZE_Z; cz++) {
-                glm::vec3 blockLocation = glm::vec3(cx + x * CHUNK_SIZE_X, cy, cz + z * CHUNK_SIZE_Z);
+                glm::vec3 blockLocation = glm::vec3(cx + chunkX * CHUNK_SIZE_X, cy, cz + chunkZ * CHUNK_SIZE_Z);
                 for (int i = 0; i < 6; i++) {
                     // Calculate the flat index
                     int index = ((cx * CHUNK_SIZE_Y * CHUNK_SIZE_Z) + (cy * CHUNK_SIZE_Z) + cz) * 6 + i;
+
+                    if (blocks[cx][cy][cz] == Blocks::AIR) {
+                        continue;
+                    }
+                    switch (i) {
+                        case 0: // Back face
+                            if (cz - 1 < 0) {
+                                if (negativeZ != nullptr && negativeZ->blocks[cx][cy][CHUNK_SIZE_Z - 1].isTransparent) {
+                                    visibility[index] = true;
+                                }
+                            } else if (blocks[cx][cy][cz - 1].isTransparent) {
+                                visibility[index] = true;
+                            }
+                            break;
+
+                        case 1: // Front face
+                            if (cz + 1 >= CHUNK_SIZE_Z) {
+                                if (positiveZ != nullptr && positiveZ->blocks[cx][cy][0].isTransparent) {
+                                    visibility[index] = true;
+                                }
+                            } else if (blocks[cx][cy][cz + 1].isTransparent) {
+                                visibility[index] = true;
+                            }
+                            break;
+
+                        case 2: // Left face
+                            if (cx - 1 < 0) {
+                                if (negativeX != nullptr && negativeX->blocks[CHUNK_SIZE_X - 1][cy][cz].isTransparent) {
+                                    visibility[index] = true;
+                                }
+                            } else if (blocks[cx - 1][cy][cz].isTransparent) {
+                                visibility[index] = true;
+                            }
+                            break;
+
+                        case 3: // Right face
+                            if (cx + 1 >= CHUNK_SIZE_X) {
+                                if (positiveX != nullptr && positiveX->blocks[0][cy][cz].isTransparent) {
+                                    visibility[index] = true;
+                                }
+                            } else if (blocks[cx + 1][cy][cz].isTransparent) {
+                                visibility[index] = true;
+                            }
+                            break;
+
+                        case 4: // Top face
+                            if (cy + 1 >= CHUNK_SIZE_Y || blocks[cx][cy + 1][cz].isTransparent) {
+                                visibility[index] = true;
+                            }
+                            break;
+
+                        case 5: // Bottom face
+                            if (cy - 1 < 0 || blocks[cx][cy - 1][cz].isTransparent) {
+                                visibility[index] = true;
+                            }
+                            break;
+                        default: ;
+                    }
+
+                    if (visibility[index] == false) {
+                        continue;
+                    }
 
                     // Assign texture offsets
                     aTexOffset[index] = blocks[cx][cy][cz].textureOffsets[i];
@@ -69,78 +174,6 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
                     // Assign the model matrix
                     models[index] = model;
 
-                    // Initialize visibility
-                    visibility[index] = false;
-                }
-            }
-        }
-    }
-    std::cout << "face\n";
-    for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
-        for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
-            for (int cz = 0; cz < CHUNK_SIZE_Z; cz++) {
-                // Skip AIR blocks
-                if (blocks[cx][cy][cz] == Blocks::AIR) {
-                    continue;
-                }
-
-                for (int i = 0; i < 6; i++) {
-                    int index = ((cx * CHUNK_SIZE_Y * CHUNK_SIZE_Z) + (cy * CHUNK_SIZE_Z) + cz) * 6 + i;
-
-                    switch (i) {
-                        case 0: // Back face
-                            if (cz - 1 < 0) {
-                                if (negativeZ != nullptr && negativeZ->blocks[cx][cy][CHUNK_SIZE_Z - 1] == Blocks::AIR) {
-                                    visibility[index] = true;
-                                }
-                            } else if (blocks[cx][cy][cz - 1] == Blocks::AIR) {
-                                visibility[index] = true;
-                            }
-                            break;
-
-                        case 1: // Front face
-                            if (cz + 1 >= CHUNK_SIZE_Z) {
-                                if (positiveZ != nullptr && positiveZ->blocks[cx][cy][0] == Blocks::AIR) {
-                                    visibility[index] = true;
-                                }
-                            } else if (blocks[cx][cy][cz + 1] == Blocks::AIR) {
-                                visibility[index] = true;
-                            }
-                            break;
-
-                        case 2: // Left face
-                            if (cx - 1 < 0) {
-                                if (negativeX != nullptr && negativeX->blocks[CHUNK_SIZE_X - 1][cy][cz] == Blocks::AIR) {
-                                    visibility[index] = true;
-                                }
-                            } else if (blocks[cx - 1][cy][cz] == Blocks::AIR) {
-                                visibility[index] = true;
-                            }
-                            break;
-
-                        case 3: // Right face
-                            if (cx + 1 >= CHUNK_SIZE_X) {
-                                if (positiveX != nullptr && positiveX->blocks[0][cy][cz] == Blocks::AIR) {
-                                    visibility[index] = true;
-                                }
-                            } else if (blocks[cx + 1][cy][cz] == Blocks::AIR) {
-                                visibility[index] = true;
-                            }
-                            break;
-
-                        case 4: // Top face
-                            if (cy + 1 >= CHUNK_SIZE_Y || blocks[cx][cy + 1][cz] == Blocks::AIR) {
-                                visibility[index] = true;
-                            }
-                            break;
-
-                        case 5: // Bottom face
-                            if (cy - 1 < 0 || blocks[cx][cy - 1][cz] == Blocks::AIR) {
-                                visibility[index] = true;
-                            }
-                            break;
-                        default: ;
-                    }
                 }
             }
         }
