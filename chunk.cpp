@@ -18,59 +18,118 @@ bool Chunk::operator==(const Chunk& other) const {
 }
 
 void Chunk::generateChunk(int chunkX, int chunkZ) {
-    const siv::PerlinNoise perlin{ seed };
+    FastNoiseLite baseNoise, detailNoise, caveNoise;
+
+    // Set seeds for reproducibility
+    baseNoise.SetSeed(seed);
+    detailNoise.SetSeed(seed);
+    caveNoise.SetSeed(seed);
+
+    // Configure noise types and frequencies
+    baseNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    baseNoise.SetFrequency(0.01f); // Large-scale terrain
+
+    detailNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+    detailNoise.SetFrequency(0.05f); // Small-scale features
+
+    caveNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+    caveNoise.SetFrequency(0.1f); // High-frequency for caves
+
+    const int SEA_LEVEL = CHUNK_SIZE_Y / 4; // Define a water level (quarter of max height)
 
     for (int x = 0; x < CHUNK_SIZE_X; ++x) {
         for (int z = 0; z < CHUNK_SIZE_Z; ++z) {
-            double noise = perlin.octave2D_01((chunkX * CHUNK_SIZE_X + x) * 0.01, (chunkZ * CHUNK_SIZE_Z + z) * 0.01, 4);
-            const int blockHeight = static_cast<int>(CHUNK_SIZE_Y * noise);
+            // Calculate world coordinates
+            double worldX = (chunkX * CHUNK_SIZE_X + x) * 1.0;
+            double worldZ = (chunkZ * CHUNK_SIZE_Z + z) * 1.0;
 
-            // Generate the terrain
-            for (int y = 0; y < blockHeight; ++y) {
-                blocks[x][y][z] = Blocks::DIRT;
-                if (y == blockHeight - 1) {
-                    blocks[x][y][z] = Blocks::GRASS_BLOCK;
+            // Base terrain height
+            double baseHeight = baseNoise.GetNoise(worldX, worldZ) * 10 + 20;
+
+            // Add detail to terrain
+            double detailHeight = detailNoise.GetNoise(worldX, worldZ) * 5;
+
+            // Combine base and detail noise for final terrain height
+            int blockHeight = static_cast<int>(baseHeight + detailHeight);
+
+            // Clamp block height to the chunk's maximum height
+            blockHeight = std::min(blockHeight, CHUNK_SIZE_Y - 1);
+
+            // Generate terrain layers
+            for (int y = 0; y < CHUNK_SIZE_Y; ++y) {
+                if (y < blockHeight) {
+                    if (y < blockHeight - 4) {
+                        blocks[x][y][z] = Blocks::STONE; // Underground stone layer
+                    } else if (y < blockHeight - 1) {
+                        blocks[x][y][z] = Blocks::DIRT; // Dirt layer
+                    } else {
+                        blocks[x][y][z] = Blocks::GRASS_BLOCK; // Top grass layer
+                    }
+                } else {
+                    blocks[x][y][z] = Blocks::AIR; // Air above terrain
                 }
             }
 
-            // Add trees with some probability
-            if (blockHeight > 4 && (rand() % 1000) < 10) { // 10% chance to spawn a tree
+            // Add caves using 3D noise
+            for (int y = 0; y < blockHeight; ++y) {
+                double caveValue = caveNoise.GetNoise(worldX, y * 1.0, worldZ);
+                if (caveValue > 0.6) {
+                    blocks[x][y][z] = Blocks::AIR; // Carve out a cave
+                }
+            }
+
+            // Add trees in forest biomes with some probability
+            if ((rand() % 100) < 10) { // 10% chance
                 generateTree(x, blockHeight, z);
             }
         }
     }
 }
 
+
 void Chunk::generateTree(int x, int baseHeight, int z) {
-    const int treeHeight = 5 + rand() % 3; // Random tree height between 5 and 7
-    const int foliageStart = baseHeight + treeHeight - 2;
+    if (baseHeight + 5 >= CHUNK_SIZE_Y) return;
+    if (z + 2 >= CHUNK_SIZE_Z) return;
+    if (z - 2 < 0) return;
+    if (x + 2 >= CHUNK_SIZE_X) return;
+    if (x - 2 < 0) return;
 
-    // Generate trunk
-    for (int y = baseHeight; y < baseHeight + treeHeight; ++y) {
-        if (y < CHUNK_SIZE_Y) {
-            blocks[x][y][z] = Blocks::OAK_LOG;
+    // Layer 1
+    blocks[x][baseHeight][z] = Blocks::OAK_LOG;
+
+    // Layer 2
+    blocks[x][baseHeight + 1][z] = Blocks::OAK_LOG;
+
+    // Layer 3
+    for (int cx = x - 2; cx <= x + 2; ++cx) {
+        for (int cz = z - 2; cz <= z + 2; ++cz) {
+            blocks[cx][baseHeight + 2][cz] = Blocks::OAK_LEAVES;
         }
     }
+    blocks[x][baseHeight + 2][z] = Blocks::OAK_LOG;
 
-    // Generate foliage
-    for (int dx = -2; dx <= 2; ++dx) {
-        for (int dz = -2; dz <= 2; ++dz) {
-            for (int dy = 0; dy <= 2; ++dy) {
-                int fx = x + dx;
-                int fz = z + dz;
-                int fy = foliageStart + dy;
-
-                if (fx >= 0 && fx < CHUNK_SIZE_X &&
-                    fy >= 0 && fy < CHUNK_SIZE_Y &&
-                    fz >= 0 && fz < CHUNK_SIZE_Z) {
-                    // Use a simple distance-based check to create a spherical foliage
-                    if (dx * dx + dz * dz + dy <= 4) {
-                        blocks[fx][fy][fz] = Blocks::OAK_LEAVES;
-                    }
-                    }
-            }
+    // Layer 4
+    for (int cx = x - 2; cx <= x + 2; ++cx) {
+        for (int cz = z - 2; cz <= z + 2; ++cz) {
+            blocks[cx][baseHeight + 3][cz] = Blocks::OAK_LEAVES;
         }
     }
+    blocks[x][baseHeight + 3][z] = Blocks::OAK_LOG;
+
+    // Layer 5
+    for (int cx = x - 1; cx <= x + 1; ++cx) {
+        for (int cz = z - 1; cz <= z + 1; ++cz) {
+            blocks[cx][baseHeight + 4][cz] = Blocks::OAK_LEAVES;
+        }
+    }
+    blocks[x][baseHeight + 4][z] = Blocks::OAK_LOG;
+
+    // Layer 6
+    blocks[x][baseHeight + 5][z] = Blocks::OAK_LEAVES;
+    blocks[x][baseHeight + 5][z - 1] = Blocks::OAK_LEAVES;
+    blocks[x][baseHeight + 5][z + 1] = Blocks::OAK_LEAVES;
+    blocks[x - 1][baseHeight + 5][z] = Blocks::OAK_LEAVES;
+    blocks[x + 1][baseHeight + 5][z] = Blocks::OAK_LEAVES;
 }
 
 void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, Chunk* positiveZ, Chunk* negativeZ) {

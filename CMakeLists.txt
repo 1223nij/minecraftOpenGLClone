@@ -27,5 +27,6 @@ add_executable(OpenGLProject main.cpp src/glad.c
         imstb_truetype.h
         imgui_impl_opengl3.cpp
         imgui_impl_opengl3_loader.h
-        imgui_impl_glfw.cpp)
+        imgui_impl_glfw.cpp
+        FastNoiseLite.h)
 target_link_libraries(OpenGLProject GL GLEW glfw)

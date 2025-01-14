@@ -1,6 +1,6 @@
-#include "PerlinNoise.hpp"
+#include "FastNoiseLite.h"
 
-constexpr siv::PerlinNoise::seed_type seed = 1223u;
+constexpr int seed = 1223;
 constexpr unsigned int SCR_WIDTH = 1280;
 constexpr unsigned int SCR_HEIGHT = 768;
 constexpr int renderDistance = 4;

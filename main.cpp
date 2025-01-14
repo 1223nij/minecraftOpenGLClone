@@ -156,7 +156,7 @@ void cleanupChunksAsync(const glm::vec2& chunkPosition,
                     chunkMap.erase(it);
 
                     // Remove from renderedChunks
-                    auto renderedIt = std::find(renderedChunks.begin(), renderedChunks.end(), chunkPtr);
+                    auto renderedIt = std::ranges::find(renderedChunks, chunkPtr);
                     if (renderedIt != renderedChunks.end()) {
                         renderedChunks.erase(renderedIt);
                     }
@@ -305,7 +305,7 @@ int main()
     glFrontFace(GL_CW);    // Set counter-clockwise vertices as the front face
 
 
-    glm::vec4 grassTint = getPixelColor("../images/grasscolor.png", 0, 30);
+    glm::vec4 grassTint = getPixelColor("../images/grasscolor.png", 127, 127);
 
     std::cout << "R: " << grassTint.r << " G: " << grassTint.g << " B: " << grassTint.b << std::endl;
 
