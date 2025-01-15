@@ -414,19 +414,20 @@ int main()
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT), 0.1f, 1000.0f);
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 100.0f, 0.0f));;
+        model = glm::translate(model, glm::vec3(0.0f, 30.0f, 0.0f));;
 
         shaderLight.use();
         glBindVertexArray(lightCubeVAO);
         shaderLight.setMat4("view", view);
         shaderLight.setMat4("projection", projection);
         shaderLight.setMat4("model", model);
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        //glDrawArrays(GL_TRIANGLES, 0, 36);
 
         shaderGay.use();
         shaderGay.setMat4("view", view);
         shaderGay.setMat4("projection", projection);
         shaderGay.setVec3("lightColor", 1.0f, 1.0f, 1.0f);
+        shaderGay.setVec3("lightPos", glm::vec3(0.0f, 30.0f, 0.0f));
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);
@@ -496,7 +497,7 @@ int main()
 
         glBindBuffer(GL_ARRAY_BUFFER, instanceVBOla);
         glBufferData(GL_ARRAY_BUFFER, combinedDeta.size() * sizeof(float), combinedDeta.data(), GL_STATIC_DRAW);
-        constexpr GLsizei stride = (2 + 2 + 16) * sizeof(float);
+        constexpr GLsizei stride = (2 + 2 + 16 + 3) * sizeof(float);
         glEnableVertexAttribArray(2);
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, static_cast<void *>(nullptr));
         glVertexAttribDivisor(2, 1);
@@ -520,8 +521,12 @@ int main()
         glEnableVertexAttribArray(7);
         glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 16));
         glVertexAttribDivisor(7, 1);
+
+        glEnableVertexAttribArray(8);
+        glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void *>(sizeof(float) * 20));
+        glVertexAttribDivisor(8, 1);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, combinedDeta.size() / 20);
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, combinedDeta.size() / 21);
         glDeleteBuffers(1, &instanceVBOla);
         glBindVertexArray(0);
 

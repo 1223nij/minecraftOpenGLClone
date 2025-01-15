@@ -57,7 +57,7 @@ void Chunk::generateChunk(int chunkX, int chunkZ) {
             bool isDesert = (biomeValue < -0.2);
 
             // Base terrain height
-            double baseHeight = baseNoise.GetNoise(worldX, worldZ) * 10 + 20;
+            double baseHeight = baseNoise.GetNoise(worldX, worldZ) * 10 + 60;
 
             // Add detail to terrain
             double detailHeight = detailNoise.GetNoise(worldX, worldZ) * 5;
@@ -81,7 +81,7 @@ void Chunk::generateChunk(int chunkX, int chunkZ) {
                         blocks[x][y][z] = Blocks::GRASS_BLOCK; // Top grass layer
                     }
                 } else if (y < SEA_LEVEL) {
-                    blocks[x][y][z] = Blocks::WATER; // Fill water below sea level
+                    //blocks[x][y][z] = Blocks::WATER; // Fill water below sea level
                 }
             }
 
@@ -190,11 +190,13 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
     std::vector<glm::vec2> aTexOffset;
     std::vector<glm::mat4> models;
     std::vector<bool> visibility;
+    std::vector<glm::vec3> normals;
     int size = CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z * 6;
     aTexOffsetOverlay.resize(size);
     aTexOffset.resize(size);
     models.resize(size);
     visibility.resize(size);
+    normals.resize(size);
     std::cout << "data\n";
     for (int cx = 0; cx < CHUNK_SIZE_X; cx++) {
         for (int cy = 0; cy < CHUNK_SIZE_Y; cy++) {
@@ -275,7 +277,7 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
                     if (blocks[cx][cy][cz] == Blocks::CACTUS) {
                         switch (i) {
                             case 0:
-                                model = glm::translate(glm::mat4(1.0f), glm::vec3(blockLocation.x, blockLocation.y, blockLocation.z + 1.0f / 16z));
+                                model = glm::translate(glm::mat4(1.0f), glm::vec3(blockLocation.x, blockLocation.y, blockLocation.z + 1.0f / 16));
                                 break;
                             case 1:
                                 model = glm::translate(glm::mat4(1.0f), glm::vec3(blockLocation.x, blockLocation.y, blockLocation.z - 1.0f / 16));
@@ -290,12 +292,29 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
                         }
                     }
                     switch (i) {
-                        case 0: break; // Front face
-                        case 1: model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Back face
-                        case 3: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Left face
-                        case 2: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Right face
-                        case 5: model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Bottom face
-                        case 4: model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); break; // Top face
+                        case 0:
+                            normals[index] = glm::vec3(0.0f,  0.0f, -1.0f);
+                            break; // Front face
+                        case 1:
+                            normals[index] = glm::vec3(0.0f,  0.0f, 1.0f);
+                            model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+                            break; // Back face
+                        case 2:
+                            normals[index] = glm::vec3(-1.0f,  0.0f, 0.0f);
+                            model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+                            break; // Left face
+                        case 3:
+                            normals[index] = glm::vec3(1.0f,  0.0f, 0.0f);
+                            model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+                            break; // Right face
+                        case 4:
+                            normals[index] = glm::vec3(0.0f,  1.0f, 0.0f);
+                            model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                            break; // Bottom face
+                        case 5:
+                            normals[index] = glm::vec3(0.0f,  -1.0f, 0.0f);
+                            model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                            break; // Top face
                         default: ;
                     }
 
@@ -316,6 +335,7 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
             aTexOffsetOverlay[writeIndex] = aTexOffsetOverlay[readIndex];
             models[writeIndex] = models[readIndex];
             visibility[writeIndex] = visibility[readIndex];
+            normals[writeIndex] = normals[readIndex];
             ++writeIndex;
         }
     }
@@ -323,6 +343,7 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
     aTexOffsetOverlay.resize(writeIndex);
     models.resize(writeIndex);
     visibility.resize(writeIndex);
+    normals.resize(writeIndex);
 
 
     if (models.size() == visibility.size() && visibility.size() == aTexOffset.size() && aTexOffset.size() == aTexOffsetOverlay.size()) {
@@ -332,25 +353,28 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
         std::cout << "Vectors are not the same size" << std::endl;
     }
     std::cout << "hallo" << std::endl;
-    combinedData = std::vector<float>(size * (2 + 2 + 16)); // 2 floats for each vec2, 16 floats for mat4
+    combinedData = std::vector<float>(size * (2 + 2 + 16 + 3)); // 2 floats for each vec2, 16 floats for mat4
     std::cout << "comb\n";
     for (size_t i = 0; i < size; ++i) {
         // Add aTexOffset
-        combinedData[i * 20 + 0] = aTexOffset[i].x;
-        combinedData[i * 20 + 1] = aTexOffset[i].y;
+        combinedData[i * 23 + 0] = aTexOffset[i].x;
+        combinedData[i * 23 + 1] = aTexOffset[i].y;
 
         // Add aTexOffsetOverlay
-        combinedData[i * 20 + 2] = aTexOffsetOverlay[i].x;
-        combinedData[i * 20 + 3] = aTexOffsetOverlay[i].y;
+        combinedData[i * 23 + 2] = aTexOffsetOverlay[i].x;
+        combinedData[i * 23 + 3] = aTexOffsetOverlay[i].y;
 
         // Add model matrix
         const glm::mat4& mat = models[i];
 
         for (int j = 0; j < 4; ++j) {
-            combinedData[i * 20 + 4 + 4 * j + 0] = mat[j].x;
-            combinedData[i * 20 + 4 + 4 * j + 1] = mat[j].y;
-            combinedData[i * 20 + 4 + 4 * j + 2] = mat[j].z;
-            combinedData[i * 20 + 4 + 4 * j + 3] = mat[j].w;
+            combinedData[i * 23 + 4 + 4 * j + 0] = mat[j].x;
+            combinedData[i * 23 + 4 + 4 * j + 1] = mat[j].y;
+            combinedData[i * 23 + 4 + 4 * j + 2] = mat[j].z;
+            combinedData[i * 23 + 4 + 4 * j + 3] = mat[j].w;
         }
+        combinedData[i * 23 + 20] = normals[i].x;
+        combinedData[i * 23 + 21] = normals[i].y;
+        combinedData[i * 23 + 22] = normals[i].z;
     }
 }
