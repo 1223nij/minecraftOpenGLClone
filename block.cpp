@@ -8,6 +8,8 @@ public:
     glm::vec2 textureOffsets[6];
     glm::vec2 textureOffsetOverlays[6];
     bool isTransparent = false;
+    bool isLiquid = false;
+
 
     constexpr Block(std::string_view n, std::string_view i,
                     glm::vec2 front, glm::vec2 back,
@@ -16,8 +18,8 @@ public:
                     glm::vec2 frontOverlay, glm::vec2 backOverlay,
                     glm::vec2 leftOverlay, glm::vec2 rightOverlay,
                     glm::vec2 topOverlay, glm::vec2 bottomOverlay,
-                    bool transparent)
-        : name(n), id(i), textureOffsets{front, back, left, right, top, bottom}, textureOffsetOverlays{frontOverlay, backOverlay, leftOverlay, rightOverlay, topOverlay, bottomOverlay}, isTransparent(transparent){}
+                    bool transparent, bool liquid)
+        : name(n), id(i), textureOffsets{front, back, left, right, top, bottom}, textureOffsetOverlays{frontOverlay, backOverlay, leftOverlay, rightOverlay, topOverlay, bottomOverlay}, isTransparent(transparent), isLiquid(liquid){}
 
     constexpr bool operator==(const Block& other) const {
         return id == other.id;
@@ -33,7 +35,7 @@ struct Blocks {
         glm::vec2{4, -11}, glm::vec2{4, -11},
         glm::vec2{4, -11}, glm::vec2{4, -11},
         glm::vec2{4, -11}, glm::vec2{4, -11},
-        true
+        true, false
     };
     static constexpr Block DIRT{
         "Dirt", "minecraft:dirt",
@@ -43,7 +45,7 @@ struct Blocks {
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
-        false
+        false, false
     };
     static constexpr Block STONE{
         "Stone", "minecraft:stone",
@@ -53,7 +55,7 @@ struct Blocks {
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
-        false
+        false, false
     };
     static constexpr Block GRASS_BLOCK{
         "Grass Block", "minecraft:grass_block",
@@ -63,7 +65,7 @@ struct Blocks {
         glm::vec2{6, -2}, glm::vec2{6, -2},
         glm::vec2{6, -2}, glm::vec2{6, -2},
         glm::vec2{0, 0}, AIR.textureOffsetOverlays[0],
-        false
+        false, false
     };
     static constexpr Block OAK_PLANKS{
         "Oak Planks", "minecraft:oak_planks",
@@ -73,7 +75,7 @@ struct Blocks {
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
-        false
+        false, false
     };
     static constexpr Block OAK_LOG{
         "Oak Log", "minecraft:oak_log",
@@ -83,7 +85,7 @@ struct Blocks {
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
         AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
-        false
+        false, false
     };
     static constexpr Block OAK_LEAVES{
         "Oak Leaves", "minecraft:OAK_LEAVES",
@@ -93,6 +95,36 @@ struct Blocks {
         glm::vec2{4, -3}, glm::vec2{4, -3},
         glm::vec2{4, -3}, glm::vec2{4, -3},
         glm::vec2{4, -3}, glm::vec2{4, -3},
-        true
+        true, false
+    };
+    static constexpr Block SAND{
+        "Sand", "minecraft:sand",
+        glm::vec2{2, -1}, glm::vec2{2, -1},
+        glm::vec2{2, -1}, glm::vec2{2, -1},
+        glm::vec2{2, -1}, glm::vec2{2, -1},
+        AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
+        AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
+        AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
+        false, false
+    };
+    static constexpr Block CACTUS{
+        "Cactus", "minecraft:cactus",
+        glm::vec2{6, -4}, glm::vec2{6, -4},
+        glm::vec2{6, -4}, glm::vec2{6, -4},
+        glm::vec2{5, -4}, glm::vec2{7, -4},
+        AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
+        AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
+        AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
+        true, false
+    };
+    static constexpr Block WATER{
+        "Water", "minecraft:water",
+        glm::vec2{13, -12}, glm::vec2{13, -12},
+        glm::vec2{13, -12}, glm::vec2{13, -12},
+        glm::vec2{13, -12}, glm::vec2{13, -12},
+        AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
+        AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
+        AIR.textureOffsetOverlays[0], AIR.textureOffsetOverlays[0],
+        true, true
     };
 };

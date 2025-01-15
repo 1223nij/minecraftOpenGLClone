@@ -26,6 +26,7 @@ public:
     inline void setupBuffer();
     inline void generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, Chunk* positiveZ, Chunk* negativeZ);
     inline void generateTree(int x, int baseHeight, int z);
+    inline void generateCactus(int x, int baseHeight, int z);
 private:
     int chunkX; // X coordinate of the chunk
     int chunkZ; // Z coordinate of the chunk

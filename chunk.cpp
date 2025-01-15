@@ -18,12 +18,14 @@ bool Chunk::operator==(const Chunk& other) const {
 }
 
 void Chunk::generateChunk(int chunkX, int chunkZ) {
-    FastNoiseLite baseNoise, detailNoise, caveNoise;
+    FastNoiseLite baseNoise, detailNoise, biomeNoise, caveNoise, tunnelNoise;
 
     // Set seeds for reproducibility
     baseNoise.SetSeed(seed);
-    detailNoise.SetSeed(seed);
-    caveNoise.SetSeed(seed);
+    detailNoise.SetSeed(seed + 1);
+    biomeNoise.SetSeed(seed + 2);
+    caveNoise.SetSeed(seed + 3);
+    tunnelNoise.SetSeed(seed + 4);
 
     // Configure noise types and frequencies
     baseNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
@@ -32,16 +34,27 @@ void Chunk::generateChunk(int chunkX, int chunkZ) {
     detailNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
     detailNoise.SetFrequency(0.05f); // Small-scale features
 
-    caveNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
-    caveNoise.SetFrequency(0.1f); // High-frequency for caves
+    biomeNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    biomeNoise.SetFrequency(0.005f); // Biome distribution
 
-    const int SEA_LEVEL = CHUNK_SIZE_Y / 4; // Define a water level (quarter of max height)
+    caveNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+    caveNoise.SetFrequency(0.08f); // Higher frequency for smaller caves
+
+    tunnelNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    tunnelNoise.SetFrequency(0.05f); // Frequency for directional tunnels
+
+    const int SEA_LEVEL = CHUNK_SIZE_Y / 8; // Define a water level (quarter of max height)
 
     for (int x = 0; x < CHUNK_SIZE_X; ++x) {
         for (int z = 0; z < CHUNK_SIZE_Z; ++z) {
             // Calculate world coordinates
             double worldX = (chunkX * CHUNK_SIZE_X + x) * 1.0;
             double worldZ = (chunkZ * CHUNK_SIZE_Z + z) * 1.0;
+
+            // Biome noise determines the biome type
+            double biomeValue = biomeNoise.GetNoise(worldX, worldZ);
+            bool isForest = (biomeValue > 0.2);
+            bool isDesert = (biomeValue < -0.2);
 
             // Base terrain height
             double baseHeight = baseNoise.GetNoise(worldX, worldZ) * 10 + 20;
@@ -59,30 +72,69 @@ void Chunk::generateChunk(int chunkX, int chunkZ) {
             for (int y = 0; y < CHUNK_SIZE_Y; ++y) {
                 if (y < blockHeight) {
                     if (y < blockHeight - 4) {
-                        blocks[x][y][z] = Blocks::STONE; // Underground stone layer
+                        blocks[x][y][z] = Blocks::STONE; // Desert biome uses sand
+                    } else if (isDesert) {
+                        blocks[x][y][z] = Blocks::SAND; // Underground stone layer
                     } else if (y < blockHeight - 1) {
                         blocks[x][y][z] = Blocks::DIRT; // Dirt layer
                     } else {
                         blocks[x][y][z] = Blocks::GRASS_BLOCK; // Top grass layer
                     }
-                } else {
-                    blocks[x][y][z] = Blocks::AIR; // Air above terrain
+                } else if (y < SEA_LEVEL) {
+                    blocks[x][y][z] = Blocks::WATER; // Fill water below sea level
                 }
             }
 
-            // Add caves using 3D noise
+            // Small cave system generation
             for (int y = 0; y < blockHeight; ++y) {
+                // Cave noise for small pockets
                 double caveValue = caveNoise.GetNoise(worldX, y * 1.0, worldZ);
-                if (caveValue > 0.6) {
-                    blocks[x][y][z] = Blocks::AIR; // Carve out a cave
+                if (caveValue > 0.55) { // Adjust threshold for small caves
+                    blocks[x][y][z] = Blocks::AIR; // Carve out a small cave
+                }
+            }
+
+            // Tunnel generation with directional noise
+            for (int y = 0; y < CHUNK_SIZE_Y; ++y) {
+                // Create worm-like tunnels with directional bias
+                double tunnelValue = tunnelNoise.GetNoise(worldX * 0.5, y * 0.2, worldZ * 0.5);
+                if (tunnelValue > 0.65 && tunnelValue < 0.8) { // Narrow range for tunnels
+                    blocks[x][y][z] = Blocks::AIR; // Carve tunnel
                 }
             }
 
             // Add trees in forest biomes with some probability
-            if ((rand() % 100) < 10) { // 10% chance
+            if (isForest && blockHeight > SEA_LEVEL + 2 && (rand() % 100) < 10) { // 10% chance
                 generateTree(x, blockHeight, z);
             }
+
+            // Add cacti in desert biomes with some probability
+            if (isDesert && blockHeight > SEA_LEVEL + 2 && (rand() % 100) < 5) { // 5% chance
+                generateCactus(x, blockHeight, z);
+            }
         }
+    }
+}
+
+void Chunk::generateCactus(int x, int baseHeight, int z) {
+    // Cactus parameters
+    const int MAX_CACTUS_HEIGHT = 4; // Maximum cactus height
+    const int MIN_CACTUS_HEIGHT = 2; // Minimum cactus height
+
+    // Random height for the cactus
+    int cactusHeight = MIN_CACTUS_HEIGHT + (rand() % (MAX_CACTUS_HEIGHT - MIN_CACTUS_HEIGHT + 1));
+
+    // Generate the cactus
+    for (int y = 0; y < cactusHeight; ++y) {
+        int currentY = baseHeight + y;
+
+        // Ensure the cactus doesn't exceed the chunk's height limit
+        if (currentY >= CHUNK_SIZE_Y) {
+            break;
+        }
+
+        // Place cactus block
+        blocks[x][currentY][z] = Blocks::CACTUS;
     }
 }
 
@@ -158,52 +210,52 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
                     switch (i) {
                         case 0: // Back face
                             if (cz - 1 < 0) {
-                                if (negativeZ != nullptr && negativeZ->blocks[cx][cy][CHUNK_SIZE_Z - 1].isTransparent) {
+                                if (negativeZ != nullptr && negativeZ->blocks[cx][cy][CHUNK_SIZE_Z - 1].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == negativeZ->blocks[cx][cy][CHUNK_SIZE_Z - 1])) {
                                     visibility[index] = true;
                                 }
-                            } else if (blocks[cx][cy][cz - 1].isTransparent) {
+                            } else if (blocks[cx][cy][cz - 1].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == blocks[cx][cy][cz - 1])) {
                                 visibility[index] = true;
                             }
                             break;
 
                         case 1: // Front face
                             if (cz + 1 >= CHUNK_SIZE_Z) {
-                                if (positiveZ != nullptr && positiveZ->blocks[cx][cy][0].isTransparent) {
+                                if (positiveZ != nullptr && positiveZ->blocks[cx][cy][0].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == positiveZ->blocks[cx][cy][0])) {
                                     visibility[index] = true;
                                 }
-                            } else if (blocks[cx][cy][cz + 1].isTransparent) {
+                            } else if (blocks[cx][cy][cz + 1].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == blocks[cx][cy][cz + 1])) {
                                 visibility[index] = true;
                             }
                             break;
 
                         case 2: // Left face
                             if (cx - 1 < 0) {
-                                if (negativeX != nullptr && negativeX->blocks[CHUNK_SIZE_X - 1][cy][cz].isTransparent) {
+                                if (negativeX != nullptr && negativeX->blocks[CHUNK_SIZE_X - 1][cy][cz].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == negativeX->blocks[CHUNK_SIZE_X - 1][cy][cz])) {
                                     visibility[index] = true;
                                 }
-                            } else if (blocks[cx - 1][cy][cz].isTransparent) {
+                            } else if (blocks[cx - 1][cy][cz].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == blocks[cx - 1][cy][cz])) {
                                 visibility[index] = true;
                             }
                             break;
 
                         case 3: // Right face
                             if (cx + 1 >= CHUNK_SIZE_X) {
-                                if (positiveX != nullptr && positiveX->blocks[0][cy][cz].isTransparent) {
+                                if (positiveX != nullptr && positiveX->blocks[0][cy][cz].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == positiveX->blocks[0][cy][cz])) {
                                     visibility[index] = true;
                                 }
-                            } else if (blocks[cx + 1][cy][cz].isTransparent) {
+                            } else if (blocks[cx + 1][cy][cz].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == blocks[cx + 1][cy][cz])) {
                                 visibility[index] = true;
                             }
                             break;
 
                         case 4: // Top face
-                            if (cy + 1 >= CHUNK_SIZE_Y || blocks[cx][cy + 1][cz].isTransparent) {
+                            if (cy + 1 >= CHUNK_SIZE_Y || blocks[cx][cy + 1][cz].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == blocks[cx][cy + 1][cz])) {
                                 visibility[index] = true;
                             }
                             break;
 
                         case 5: // Bottom face
-                            if (cy - 1 < 0 || blocks[cx][cy - 1][cz].isTransparent) {
+                            if (cy - 1 < 0 || blocks[cx][cy - 1][cz].isTransparent && !(blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] == blocks[cx][cy - 1][cz])) {
                                 visibility[index] = true;
                             }
                             break;
@@ -220,6 +272,23 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
 
                     // Calculate the model matrix
                     glm::mat4 model = glm::translate(glm::mat4(1.0f), blockLocation);
+                    if (blocks[cx][cy][cz] == Blocks::CACTUS) {
+                        switch (i) {
+                            case 0:
+                                model = glm::translate(glm::mat4(1.0f), glm::vec3(blockLocation.x, blockLocation.y, blockLocation.z + 1.0f / 16z));
+                                break;
+                            case 1:
+                                model = glm::translate(glm::mat4(1.0f), glm::vec3(blockLocation.x, blockLocation.y, blockLocation.z - 1.0f / 16));
+                                break;
+                            case 2:
+                                model = glm::translate(glm::mat4(1.0f), glm::vec3(blockLocation.x + 1.0f / 16, blockLocation.y, blockLocation.z));
+                                break;
+                            case 3:
+                                model = glm::translate(glm::mat4(1.0f), glm::vec3(blockLocation.x - 1.0f / 16, blockLocation.y, blockLocation.z));
+                                break;
+                            default: ;
+                        }
+                    }
                     switch (i) {
                         case 0: break; // Front face
                         case 1: model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f)); break; // Back face

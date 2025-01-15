@@ -290,6 +290,7 @@ int main()
     stbi_image_free(data);
 
     Shader shaderGay("../shaders/Gay.vert", "../shaders/Gay.frag");
+    Shader shaderLight("../shaders/Light.vert", "../shaders/Light.frag");
 
     glEnable(GL_DEPTH_TEST);
 
@@ -320,6 +321,65 @@ int main()
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);          // Second param install_callback=true will install GLFW callbacks and chain to existing ones.
     ImGui_ImplOpenGL3_Init();
+
+    float vertices[] = {
+        // Front face
+        -0.5f, -0.5f, -0.5f,
+         0.5f, -0.5f, -0.5f,
+         0.5f,  0.5f, -0.5f,
+         0.5f,  0.5f, -0.5f,
+        -0.5f,  0.5f, -0.5f,
+        -0.5f, -0.5f, -0.5f,
+
+        // Back face
+        -0.5f, -0.5f,  0.5f,
+        -0.5f,  0.5f,  0.5f,
+         0.5f,  0.5f,  0.5f,
+         0.5f,  0.5f,  0.5f,
+         0.5f, -0.5f,  0.5f,
+        -0.5f, -0.5f,  0.5f,
+
+        // Left face
+        -0.5f, -0.5f, -0.5f,
+        -0.5f,  0.5f, -0.5f,
+        -0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f,  0.5f,
+        -0.5f, -0.5f,  0.5f,
+        -0.5f, -0.5f, -0.5f,
+
+        // Right face
+         0.5f, -0.5f, -0.5f,
+         0.5f, -0.5f,  0.5f,
+         0.5f,  0.5f,  0.5f,
+         0.5f,  0.5f,  0.5f,
+         0.5f,  0.5f, -0.5f,
+         0.5f, -0.5f, -0.5f,
+
+        // Bottom face
+        -0.5f, -0.5f, -0.5f,
+        -0.5f, -0.5f,  0.5f,
+         0.5f, -0.5f,  0.5f,
+         0.5f, -0.5f,  0.5f,
+         0.5f, -0.5f, -0.5f,
+        -0.5f, -0.5f, -0.5f,
+
+        // Top face
+        -0.5f,  0.5f, -0.5f,
+         0.5f,  0.5f, -0.5f,
+         0.5f,  0.5f,  0.5f,
+         0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f, -0.5f
+    };
+
+    unsigned int lightCubeVAO, lightCubeVBO;
+    glGenVertexArrays(1, &lightCubeVAO);
+    glGenBuffers(1, &lightCubeVBO);
+    glBindVertexArray(lightCubeVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, lightCubeVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), static_cast<void *>(nullptr));
+    glEnableVertexAttribArray(0);
 
     while (!glfwWindowShouldClose(window)) {
         glm::vec2 chunkPosition = glm::vec2(floor(camera.Position.x / 16), floor(camera.Position.z / 16));
@@ -353,11 +413,20 @@ int main()
 
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT), 0.1f, 1000.0f);
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, 100.0f, 0.0f));;
 
+        shaderLight.use();
+        glBindVertexArray(lightCubeVAO);
+        shaderLight.setMat4("view", view);
+        shaderLight.setMat4("projection", projection);
+        shaderLight.setMat4("model", model);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
 
         shaderGay.use();
         shaderGay.setMat4("view", view);
         shaderGay.setMat4("projection", projection);
+        shaderGay.setVec3("lightColor", 1.0f, 1.0f, 1.0f);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);
@@ -373,7 +442,6 @@ int main()
         shaderGay.setInt("topTexture", 1);
         shaderGay.setVec4("tintColor", grassTint);
 
-        glBindVertexArray(VAO1);
         GLuint instanceVBOla;
         glGenBuffers(1, &instanceVBOla);
         std::vector<float> combinedDeta;
@@ -465,6 +533,14 @@ int main()
 
     glDeleteVertexArrays(1, &VAO1);
     glDeleteBuffers(1, &VBO1);
+
+
+    // Cleanup
+    for (auto& thread : threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
 
     glfwTerminate();
     ImGui_ImplOpenGL3_Shutdown();
