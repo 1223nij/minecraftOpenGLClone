@@ -164,7 +164,7 @@ void cleanupChunksAsync(const glm::vec2& chunkPosition,
             }
         }
 
-        std::cout << "Async cleanup complete. Removed " << chunksToRemove.size() << " chunks.\n";
+        //std::cout << "Async cleanup complete. Removed " << chunksToRemove.size() << " chunks.\n";
         cleanupInProgress = false;
     }).detach(); // Detach the thread to allow it to run independently
 }
@@ -414,20 +414,20 @@ int main()
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), static_cast<float>(SCR_WIDTH) / static_cast<float>(SCR_HEIGHT), 0.1f, 1000.0f);
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 30.0f, 0.0f));;
+        model = glm::translate(model, camera.Position);;
 
         shaderLight.use();
         glBindVertexArray(lightCubeVAO);
         shaderLight.setMat4("view", view);
         shaderLight.setMat4("projection", projection);
         shaderLight.setMat4("model", model);
-        //glDrawArrays(GL_TRIANGLES, 0, 36);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
 
         shaderGay.use();
         shaderGay.setMat4("view", view);
         shaderGay.setMat4("projection", projection);
         shaderGay.setVec3("lightColor", 1.0f, 1.0f, 1.0f);
-        shaderGay.setVec3("lightPos", glm::vec3(0.0f, 30.0f, 0.0f));
+        shaderGay.setVec3("lightPos", camera.Position);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);

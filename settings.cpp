@@ -1,6 +1,6 @@
 #include "FastNoiseLite.h"
 
-constexpr int seed = 1223;
+inline int seed = random() * 10000;
 constexpr unsigned int SCR_WIDTH = 1280;
 constexpr unsigned int SCR_HEIGHT = 768;
 constexpr int renderDistance = 4;

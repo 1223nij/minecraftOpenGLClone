@@ -22,10 +22,10 @@ void Chunk::generateChunk(int chunkX, int chunkZ) {
 
     // Set seeds for reproducibility
     baseNoise.SetSeed(seed);
-    detailNoise.SetSeed(seed + 1);
-    biomeNoise.SetSeed(seed + 2);
-    caveNoise.SetSeed(seed + 3);
-    tunnelNoise.SetSeed(seed + 4);
+    detailNoise.SetSeed(seed);
+    biomeNoise.SetSeed(seed);
+    caveNoise.SetSeed(seed);
+    tunnelNoise.SetSeed(seed);
 
     // Configure noise types and frequencies
     baseNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);

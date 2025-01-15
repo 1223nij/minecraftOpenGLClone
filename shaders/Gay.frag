@@ -15,9 +15,10 @@ uniform vec3 lightPos;
 void main()
 {
    vec3 sunDirection = normalize(vec3(0.5, 1.0, 0.0)); // Example sun direction
+   vec3 lightDir = normalize(lightPos - FragPos);
    float diff = max(dot(normalize(Normal), sunDirection), 0.0);
    vec3 diffuse = diff * lightColor;
-   float ambientStrength = 0.8;
+   float ambientStrength = 0.3;
    vec3 ambient = ambientStrength * lightColor;
    // Sample both textures
    vec4 baseColor = texture(ourTexture, TexCoord);
@@ -29,8 +30,6 @@ void main()
       discard;
    }
    vec3 result = (ambient + diffuse);
-   float cap = 1.1;
-   if (result.x > cap || result.y > cap || result.z > cap) result = vec3(cap);
    FragColor = vec4(FragColor.xyz * result, FragColor.a);
    //FragColor = texture(topTexture, TexCoord2);
 }
