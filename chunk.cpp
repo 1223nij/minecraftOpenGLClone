@@ -43,7 +43,7 @@ void Chunk::generateChunk(int chunkX, int chunkZ) {
     tunnelNoise.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
     tunnelNoise.SetFrequency(0.05f); // Frequency for directional tunnels
 
-    const int SEA_LEVEL = CHUNK_SIZE_Y / 8; // Define a water level (quarter of max height)
+    const int SEA_LEVEL = 57; // Define a water level (quarter of max height)
 
     for (int x = 0; x < CHUNK_SIZE_X; ++x) {
         for (int z = 0; z < CHUNK_SIZE_Z; ++z) {
@@ -81,7 +81,7 @@ void Chunk::generateChunk(int chunkX, int chunkZ) {
                         blocks[x][y][z] = Blocks::GRASS_BLOCK; // Top grass layer
                     }
                 } else if (y < SEA_LEVEL) {
-                    //blocks[x][y][z] = Blocks::WATER; // Fill water below sea level
+                    blocks[x][y][z] = Blocks::WATER; // Fill water below sea level
                 }
             }
 
@@ -294,27 +294,44 @@ void Chunk::generateChunkData(int x, int z, Chunk* positiveX, Chunk* negativeX, 
                     switch (i) {
                         case 0:
                             normals[index] = glm::vec3(0.0f,  0.0f, -1.0f);
+                            if (blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] != blocks[cx][cy + 1][cz]) {
+                                model = glm::scale(model, glm::vec3(1.0f, 1.0f - 1.0f / 16, 1.0f));
+                                model = glm::translate(model, glm::vec3(0.0f, -1.0f / 32, 0.0f));
+                            }
                             break; // Front face
                         case 1:
                             normals[index] = glm::vec3(0.0f,  0.0f, 1.0f);
+                            if (blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] != blocks[cx][cy + 1][cz]) {
+                                model = glm::scale(model, glm::vec3(1.0f, 1.0f - 1.0f / 16, 1.0f));
+                                model = glm::translate(model, glm::vec3(0.0f, -1.0f / 32, 0.0f));
+                            }
                             model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
                             break; // Back face
                         case 2:
                             normals[index] = glm::vec3(-1.0f,  0.0f, 0.0f);
+                            if (blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] != blocks[cx][cy + 1][cz]) {
+                                model = glm::scale(model, glm::vec3(1.0f, 1.0f - 1.0f / 16, 1.0f));
+                                model = glm::translate(model, glm::vec3(0.0f, -1.0f / 32, 0.0f));
+                            }
                             model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
                             break; // Left face
                         case 3:
                             normals[index] = glm::vec3(1.0f,  0.0f, 0.0f);
+                            if (blocks[cx][cy][cz].isLiquid && blocks[cx][cy][cz] != blocks[cx][cy + 1][cz]) {
+                                model = glm::scale(model, glm::vec3(1.0f, 1.0f - 1.0f / 16, 1.0f));
+                                model = glm::translate(model, glm::vec3(0.0f, -1.0f / 32, 0.0f));
+                            }
                             model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
                             break; // Right face
                         case 4:
                             normals[index] = glm::vec3(0.0f,  1.0f, 0.0f);
+                            if (blocks[cx][cy][cz].isLiquid) model = glm::translate(glm::mat4(1.0f), glm::vec3(blockLocation.x, blockLocation.y - 1.0f / 16, blockLocation.z));
                             model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-                            break; // Bottom face
+                            break; // Top face
                         case 5:
                             normals[index] = glm::vec3(0.0f,  -1.0f, 0.0f);
                             model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-                            break; // Top face
+                            break; // Bottom face
                         default: ;
                     }
 

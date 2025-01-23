@@ -30,6 +30,6 @@ void main()
       discard;
    }
    vec3 result = (ambient + diffuse);
-   FragColor = vec4(FragColor.xyz * result, FragColor.a);
+   FragColor = vec4(FragColor.xyz * result, 1.0);
    //FragColor = texture(topTexture, TexCoord2);
 }
